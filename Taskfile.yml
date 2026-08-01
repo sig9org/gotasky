@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+dotenv: ['project.ini']
+
+silent: true
+
+includes:
+  _cleanup: https://raw.githubusercontent.com/sig9org/tasks/main/tasks/_cleanup.yml
+  _go: https://raw.githubusercontent.com/sig9org/tasks/main/tasks/_go.yml
+  _time: https://raw.githubusercontent.com/sig9org/tasks/main/tasks/_time.yml
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  cleanup:
+    aliases: [c]
+    deps: [_time:start]
+    desc: "Cleanup unnecessary files"
+    cmds:
+      - defer: { task: _time:end }
+      - task: _cleanup:start
+
+  go-all-build:
+    aliases: [ga]
+    deps: [_time:start]
+    desc: "Cross-compile release binaries for all platforms"
+    cmds:
+      - defer: { task: _time:end }
+      - task: _go:all-build
+
+  go-build:
+    aliases: [gb]
+    deps: [_time:start]
+    desc: "Build a binary for the current platform"
+    cmds:
+      - defer: { task: _time:end }
+      - task: _go:build
+
+  go-clean:
+    aliases: [gc]
+    deps: [_time:start]
+    desc: "Delete the contents of the distribution directory"
+    cmds:
+      - defer: { task: _time:end }
+      - task: _go:clean
+
+  go-test:
+    aliases: [gt]
+    deps: [_time:start]
+    desc: "Run the Go test suite"
+    cmds:
+      - defer: { task: _time:end }
+      - task: _go:test

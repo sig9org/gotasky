@@ -1,0 +1,7 @@
+vars:
+  GREETING: Hi there!
+
+tasks:
+  greet:
+    cmds:
+      - echo "{{.GREETING}}"

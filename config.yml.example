@@ -1,0 +1,16 @@
+files:
+  hello:
+    path: "taskfiles/hello/Taskfile.yml"
+    headers:
+      - default.yml
+    tasks:
+      - default.yml
+      - hello.yml
+  include:
+    path: "taskfiles/include/Taskfile.yml"
+    headers:
+      - default.yml
+    includes:
+      - default.yml
+    tasks:
+      - greeting.yml

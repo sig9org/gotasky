@@ -1,0 +1,4 @@
+tasks:
+  wrapped-a:
+    cmds:
+      - echo a

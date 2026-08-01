@@ -1,0 +1,4 @@
+tasks:
+  wrapped-b:
+    cmds:
+      - echo b
