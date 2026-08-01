@@ -1,0 +1,6 @@
+tasks:
+  hello:
+    aliases: [h]
+    desc: Print a greeting message
+    cmds:
+      - echo "Hello, World!"

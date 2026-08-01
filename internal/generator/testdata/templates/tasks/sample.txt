@@ -1,0 +1,11 @@
+  zeta:
+    cmds:
+      - echo zeta
+
+  default:
+    cmds:
+      - task --list
+
+  alpha:
+    cmds:
+      - echo alpha
