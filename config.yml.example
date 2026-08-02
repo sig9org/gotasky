@@ -1,3 +1,14 @@
+# templates is optional: a list of one or more directories to search for
+# snippets, in order. The first directory that has a given snippet wins, so
+# a project-specific directory can be layered on top of a shared one. A
+# listed directory that doesn't exist is simply skipped, not an error --
+# generation only fails if a snippet isn't found in any of them. If
+# "templates" is omitted entirely, gotasky falls back to ./templates.
+templates:
+  - templates
+  # - project-templates
+  # - shared-templates
+
 files:
   hello:
     path: "taskfiles/hello/Taskfile.yml"

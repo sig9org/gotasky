@@ -28,23 +28,32 @@ var entryPattern = regexp.MustCompile(`^ {2}\S[^:\n]*:`)
 // "vars:" entry.
 var sectionCategories = []string{"vars", "tasks", "includes"}
 
-// Generator renders Taskfile bodies from template snippets under TemplatesDir.
+// Generator renders Taskfile bodies from template snippets under
+// TemplatesDirs, a search path of one or more directories: for a given
+// snippet, each directory is tried in order and the first match wins. This
+// lets snippets be spread across more than one location, e.g. a
+// project-specific directory layered on top of a shared one.
 type Generator struct {
-	TemplatesDir string
+	TemplatesDirs []string
 }
 
-// New creates a Generator that reads template snippets from templatesDir.
-func New(templatesDir string) *Generator {
-	return &Generator{TemplatesDir: templatesDir}
+// New creates a Generator that reads template snippets from templatesDirs,
+// in search-path order.
+func New(templatesDirs []string) *Generator {
+	return &Generator{TemplatesDirs: templatesDirs}
 }
 
 func (g *Generator) readTemplate(category, name string) (string, error) {
-	path := filepath.Join(g.TemplatesDir, category, name)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read template %s: %w", path, err)
+	tried := make([]string, 0, len(g.TemplatesDirs))
+	for _, dir := range g.TemplatesDirs {
+		path := filepath.Join(dir, category, name)
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return strings.TrimRight(string(data), "\n"), nil
+		}
+		tried = append(tried, path)
 	}
-	return strings.TrimRight(string(data), "\n"), nil
+	return "", fmt.Errorf("read template %s/%s: not found in %s", category, name, strings.Join(tried, ", "))
 }
 
 func (g *Generator) renderAll(category string, names []string) ([]string, error) {
@@ -229,8 +238,8 @@ type Result struct {
 // generating them in the same run means one silently overwrites another.
 // It returns one Result per file (in a stable, name-sorted order) and a
 // non-nil error if any file failed.
-func GenerateAll(cfg *config.Config, templatesDir, rootDir string, dryRun bool) ([]Result, error) {
-	g := New(templatesDir)
+func GenerateAll(cfg *config.Config, templatesDirs []string, rootDir string, dryRun bool) ([]Result, error) {
+	g := New(templatesDirs)
 
 	names := make([]string, 0, len(cfg.Files))
 	for name := range cfg.Files {

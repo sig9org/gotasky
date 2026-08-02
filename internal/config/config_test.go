@@ -51,6 +51,29 @@ func TestLoad_MissingFileReturnsError(t *testing.T) {
 	}
 }
 
+// A config file cannot name its own path from inside itself -- that's
+// contradictory, since the path must already be resolved before the file
+// can be read. A top-level "config" key must be rejected explicitly rather
+// than silently ignored.
+func TestLoad_RejectsTopLevelConfigKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yml")
+	content := `
+config: other.yml
+files:
+  default:
+    path: Taskfile.yml
+    headers: [default.txt]
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected error for a top-level \"config\" key")
+	}
+}
+
 func TestLoad_InvalidYAMLReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yml")
