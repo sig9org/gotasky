@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,28 +22,31 @@ func TestRun_VersionFlag(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("%s: exit code = %d, stderr = %s", opt, code, stderr.String())
 		}
-		if stdout.String() != "v1.2.3\n" {
-			t.Errorf("%s: stdout = %q, want %q", opt, stdout.String(), "v1.2.3\n")
+		want := version.String() + "\n"
+		if stdout.String() != want {
+			t.Errorf("%s: stdout = %q, want %q", opt, stdout.String(), want)
+		}
+		for _, part := range []string{"gotasky", "v1.2.3", "("} {
+			if !strings.Contains(stdout.String(), part) {
+				t.Errorf("%s: expected stdout to contain %q, got: %q", opt, part, stdout.String())
+			}
 		}
 	}
 }
 
-func TestRun_UpdateShorthandFlag(t *testing.T) {
-	old := version.Version
-	version.Version = "dev"
-	defer func() { version.Version = old }()
-
-	var stdoutLong, stderrLong bytes.Buffer
-	longCode := Run([]string{"--update"}, &stdoutLong, &stderrLong)
-
-	var stdoutShort, stderrShort bytes.Buffer
-	shortCode := Run([]string{"-u"}, &stdoutShort, &stderrShort)
-
-	if longCode != shortCode {
-		t.Fatalf("exit codes differ: --update=%d -u=%d", longCode, shortCode)
-	}
-	if stderrLong.String() != stderrShort.String() {
-		t.Errorf("stderr differs: --update=%q -u=%q", stderrLong.String(), stderrShort.String())
+// -u, -s, and -d were removed as shorthands for -update, -silent, and
+// -dryrun: only the long forms remain, so each single-letter form must now
+// be rejected as an unknown flag.
+func TestRun_RemovedShorthandFlagsAreUnrecognized(t *testing.T) {
+	for _, opt := range []string{"-u", "-s", "-d"} {
+		var stdout, stderr bytes.Buffer
+		code := Run([]string{opt}, &stdout, &stderr)
+		if code != 2 {
+			t.Errorf("%s: exit code = %d, want 2", opt, code)
+		}
+		if stderr.Len() == 0 {
+			t.Errorf("%s: expected an error message on stderr", opt)
+		}
 	}
 }
 
@@ -58,8 +62,8 @@ func TestRun_UnknownFlagReturnsUsageError(t *testing.T) {
 }
 
 // -h and --help must both print usage (naming the tool and its version, and
-// documenting -u/-v shorthands) and exit successfully, unlike a genuine
-// usage error.
+// documenting the -v shorthand) and exit successfully, unlike a genuine
+// usage error. -update, -dryrun, and -silent no longer have shorthands.
 func TestRun_HelpFlag(t *testing.T) {
 	old := version.Version
 	version.Version = "v1.2.3"
@@ -73,15 +77,49 @@ func TestRun_HelpFlag(t *testing.T) {
 		}
 
 		out := stderr.String()
-		for _, want := range []string{"gotasky v1.2.3", "-u, -update", "-v, -version", "-h, --help", "-c, -config", "-d, -dryrun", "-debug", "-s, -silent"} {
+		for _, want := range []string{"gotasky v1.2.3", "-update", "-v, -version", "-h, -help", "-c, -config", "-dryrun", "-debug", "-silent"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("%s: help output missing %q, got:\n%s", opt, want, out)
+			}
+		}
+		for _, notWant := range []string{"-u, -update", "-d, -dryrun", "-s, -silent"} {
+			if strings.Contains(out, notWant) {
+				t.Errorf("%s: help output still documents a removed shorthand %q, got:\n%s", opt, notWant, out)
 			}
 		}
 	}
 }
 
-// With no flags and no .env overrides, generate must read ./config.yml and
+// writeFlagDocs must align the short option, long option, and description
+// into fixed columns across every flag line -- a flag with no short option,
+// and a long option much wider than the rest, must not throw off where
+// every row's description starts.
+func TestWriteFlagDocs_AlignsColumns(t *testing.T) {
+	docs := []flagDoc{
+		{"a", "alpha", "short desc"},
+		{"", "muchlongerflag", "another desc"},
+		{"z", "zz", "zzz desc"},
+	}
+	var buf bytes.Buffer
+	writeFlagDocs(&buf, docs)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if len(lines) != len(docs) {
+		t.Fatalf("got %d lines, want %d:\n%s", len(lines), len(docs), buf.String())
+	}
+
+	descCol := strings.Index(lines[0], docs[0].desc)
+	if descCol < 0 {
+		t.Fatalf("description %q not found in line %q", docs[0].desc, lines[0])
+	}
+	for i, line := range lines {
+		if idx := strings.Index(line, docs[i].desc); idx != descCol {
+			t.Errorf("line %d: description starts at column %d, want %d (line: %q)", i, idx, descCol, line)
+		}
+	}
+}
+
+// With no flags and no overrides, generate must read ./config.yml and
 // ./templates, matching the documented defaults.
 func TestRun_GenerateUsesDefaultPaths(t *testing.T) {
 	dir := t.TempDir()
@@ -144,8 +182,8 @@ func TestRun_GenerateConfigYmlTakesPriorityOverConfigYaml(t *testing.T) {
 }
 
 // -c and -config must both let the user point at a config file outside the
-// current directory, taking priority over the CONFIG env var and the
-// config.yml/config.yaml defaults.
+// current directory, taking priority over the config.yml/config.yaml
+// defaults.
 func TestRun_ConfigFlag(t *testing.T) {
 	for _, opt := range []string{"-c", "-config"} {
 		dir := t.TempDir()
@@ -154,7 +192,6 @@ func TestRun_ConfigFlag(t *testing.T) {
 		writeTemplateFixtures(t, filepath.Join(dir, "templates"))
 		configPath := filepath.Join(dir, "custom-config.yml")
 		writeConfig(t, configPath, "Taskfile.yml")
-		t.Setenv("CONFIG", "should-be-overridden.yml")
 
 		var stdout, stderr bytes.Buffer
 		code := Run([]string{opt, configPath}, &stdout, &stderr)
@@ -168,28 +205,26 @@ func TestRun_ConfigFlag(t *testing.T) {
 	}
 }
 
-// -d and -dryrun must validate generation without writing any files, while
-// still reporting [OK]/[NG] and returning a non-zero exit code on failure.
+// -dryrun must validate generation without writing any files, while still
+// reporting [OK]/[NG] and returning a non-zero exit code on failure.
 func TestRun_DryRunFlagSkipsWriting(t *testing.T) {
-	for _, opt := range []string{"-d", "-dryrun"} {
-		dir := t.TempDir()
-		t.Chdir(dir)
+	dir := t.TempDir()
+	t.Chdir(dir)
 
-		writeTemplateFixtures(t, filepath.Join(dir, "templates"))
-		writeConfig(t, filepath.Join(dir, "config.yml"), "Taskfile.yml")
+	writeTemplateFixtures(t, filepath.Join(dir, "templates"))
+	writeConfig(t, filepath.Join(dir, "config.yml"), "Taskfile.yml")
 
-		var stdout, stderr bytes.Buffer
-		code := Run([]string{opt}, &stdout, &stderr)
-		if code != 0 {
-			t.Fatalf("%s: exit code = %d, stderr = %s", opt, code, stderr.String())
-		}
-		if !strings.Contains(stdout.String(), "[OK]") {
-			t.Errorf("%s: expected [OK] in stdout, got: %s", opt, stdout.String())
-		}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-dryrun"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "[OK]") {
+		t.Errorf("expected [OK] in stdout, got: %s", stdout.String())
+	}
 
-		if _, err := os.Stat(filepath.Join(dir, "Taskfile.yml")); !os.IsNotExist(err) {
-			t.Fatalf("%s: expected no file to be written, stat err = %v", opt, err)
-		}
+	if _, err := os.Stat(filepath.Join(dir, "Taskfile.yml")); !os.IsNotExist(err) {
+		t.Fatalf("expected no file to be written, stat err = %v", err)
 	}
 }
 
@@ -218,10 +253,10 @@ func TestRun_GenerateFailureIsColoredRed(t *testing.T) {
 	}
 }
 
-// Two config entries writing the same output path in one run must print a
-// yellow-colored [WARN] line, without turning generation itself into a
+// Two config entries writing the same output path in one run must print an
+// orange-colored [WARN] line, without turning generation itself into a
 // failure.
-func TestRun_DuplicateOutputPathWarnsInYellow(t *testing.T) {
+func TestRun_DuplicateOutputPathWarnsInOrange(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
@@ -243,8 +278,8 @@ func TestRun_DuplicateOutputPathWarnsInYellow(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0, stderr = %s", code, stderr.String())
 	}
 
-	if !strings.Contains(stderr.String(), ansiYellow+"[WARN]") {
-		t.Errorf("expected a yellow-colored [WARN] line, got: %q", stderr.String())
+	if !strings.Contains(stderr.String(), ansiOrange+"[WARN]") {
+		t.Errorf("expected an orange-colored [WARN] line, got: %q", stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "b-second") || !strings.Contains(stderr.String(), "Taskfile.yml") {
 		t.Errorf("expected the warning to name the duplicate file and path, got: %q", stderr.String())
@@ -273,8 +308,9 @@ func TestRun_DryRunReportsFailure(t *testing.T) {
 	}
 }
 
-// -debug must print additional [DEBUG] diagnostics without changing the
-// outcome of generation.
+// -debug must print additional [DEBUG] diagnostics, gray-colored and
+// timestamped, to stdout (not stderr) without changing the outcome of
+// generation.
 func TestRun_DebugFlagPrintsDiagnostics(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -287,33 +323,34 @@ func TestRun_DebugFlagPrintsDiagnostics(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "[DEBUG]") {
-		t.Errorf("expected [DEBUG] output in stderr, got: %s", stderr.String())
+	if !strings.Contains(stdout.String(), ansiGray+"[DEBUG]") {
+		t.Errorf("expected gray-colored [DEBUG] output in stdout, got: %s", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "[DEBUG]") {
+		t.Errorf("expected no [DEBUG] output in stderr, got: %s", stderr.String())
 	}
 }
 
-// -s and -silent must suppress all stdout output, while still writing files
-// and reporting errors on stderr as usual.
+// -silent must suppress all stdout output, while still writing files and
+// reporting errors on stderr as usual.
 func TestRun_SilentFlagSuppressesStdout(t *testing.T) {
-	for _, opt := range []string{"-s", "-silent"} {
-		dir := t.TempDir()
-		t.Chdir(dir)
+	dir := t.TempDir()
+	t.Chdir(dir)
 
-		writeTemplateFixtures(t, filepath.Join(dir, "templates"))
-		writeConfig(t, filepath.Join(dir, "config.yml"), "Taskfile.yml")
+	writeTemplateFixtures(t, filepath.Join(dir, "templates"))
+	writeConfig(t, filepath.Join(dir, "config.yml"), "Taskfile.yml")
 
-		var stdout, stderr bytes.Buffer
-		code := Run([]string{opt}, &stdout, &stderr)
-		if code != 0 {
-			t.Fatalf("%s: exit code = %d, stderr = %s", opt, code, stderr.String())
-		}
-		if stdout.Len() != 0 {
-			t.Errorf("%s: expected no stdout output, got: %q", opt, stdout.String())
-		}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-silent"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("expected no stdout output, got: %q", stdout.String())
+	}
 
-		if _, err := os.Stat(filepath.Join(dir, "Taskfile.yml")); err != nil {
-			t.Fatalf("%s: expected generated Taskfile.yml: %v", opt, err)
-		}
+	if _, err := os.Stat(filepath.Join(dir, "Taskfile.yml")); err != nil {
+		t.Fatalf("expected generated Taskfile.yml: %v", err)
 	}
 }
 
@@ -356,28 +393,30 @@ func TestRun_DebugFlagOverridesSilent(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "[DEBUG]") {
-		t.Errorf("expected [DEBUG] output in stderr, got: %s", stderr.String())
+	if !strings.Contains(stdout.String(), "[DEBUG]") {
+		t.Errorf("expected [DEBUG] output in stdout, got: %s", stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "[OK]") {
 		t.Errorf("expected -debug to override -silent and still print [OK] to stdout, got: %q", stdout.String())
 	}
 }
 
-// CONFIG / TEMPLATES environment variables (as populated from .env by main)
-// must take priority over the built-in "config.yml" / "templates" defaults.
-func TestRun_GenerateHonorsEnvOverrides(t *testing.T) {
+// The config file's top-level "templates" key must take priority over the
+// built-in "templates" directory default.
+func TestRun_GenerateHonorsTemplatesKeyOverride(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
 	templatesDir := filepath.Join(dir, "tpl")
 	writeTemplateFixtures(t, templatesDir)
 
-	configPath := filepath.Join(dir, "my-config.yml")
-	writeConfig(t, configPath, filepath.Join("out", "Taskfile.yml"))
-
-	t.Setenv("CONFIG", configPath)
-	t.Setenv("TEMPLATES", templatesDir)
+	content := fmt.Sprintf(
+		"templates: [%q]\nfiles:\n  default:\n    path: %s\n    headers: [default.txt]\n    vars: [sample.txt]\n    tasks: [sample.txt]\n",
+		templatesDir, filepath.ToSlash(filepath.Join("out", "Taskfile.yml")),
+	)
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	code := Run(nil, &stdout, &stderr)
@@ -386,7 +425,51 @@ func TestRun_GenerateHonorsEnvOverrides(t *testing.T) {
 	}
 
 	if _, err := os.Stat(filepath.Join(dir, "out", "Taskfile.yml")); err != nil {
-		t.Fatalf("expected generated Taskfile.yml at env-overridden path: %v", err)
+		t.Fatalf("expected generated Taskfile.yml using the overridden templates dir: %v", err)
+	}
+}
+
+// The config file's "templates" key accepts multiple directories, searched
+// in order -- letting snippets be spread across more than one location
+// (e.g. a project-specific directory layered on top of a shared one).
+func TestRun_GenerateHonorsMultipleTemplatesDirs(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	sharedDir := filepath.Join(dir, "shared-templates")
+	writeTemplateFixtures(t, sharedDir)
+
+	projectDir := filepath.Join(dir, "project-templates")
+	if err := os.MkdirAll(filepath.Join(projectDir, "vars"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "vars", "sample.txt"), []byte("  ONLY_HERE:\n    - x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	content := fmt.Sprintf(
+		"templates: [%q, %q]\nfiles:\n  default:\n    path: Taskfile.yml\n    headers: [default.txt]\n    vars: [sample.txt]\n    tasks: [sample.txt]\n",
+		projectDir, sharedDir,
+	)
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(nil, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "Taskfile.yml"))
+	if err != nil {
+		t.Fatalf("expected generated Taskfile.yml: %v", err)
+	}
+	if !strings.Contains(string(data), "ONLY_HERE") {
+		t.Errorf("expected the project-templates override (vars/sample.txt) to be used, got:\n%s", data)
+	}
+	if !strings.Contains(string(data), "version:") {
+		t.Errorf("expected headers/default.txt to fall back to shared-templates, got:\n%s", data)
 	}
 }
 

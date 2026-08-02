@@ -48,6 +48,14 @@ tasks:
       - defer: { task: _time:end }
       - task: _go:clean
 
+  go-register:
+    aliases: [gr]
+    deps: [_time:start]
+    desc: "Register the latest tagged version on pkg.go.dev"
+    cmds:
+      - defer: { task: _time:end }
+      - task: _go:register
+
   go-test:
     aliases: [gt]
     deps: [_time:start]
@@ -55,3 +63,11 @@ tasks:
     cmds:
       - defer: { task: _time:end }
       - task: _go:test
+
+  go-version:
+    aliases: [gv]
+    deps: [_time:start]
+    desc: "Show version information"
+    cmds:
+      - defer: { task: _time:end }
+      - task: _go:version

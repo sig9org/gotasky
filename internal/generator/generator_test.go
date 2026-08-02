@@ -55,7 +55,7 @@ func TestSortEntries_PinnedNameAbsentIsNoop(t *testing.T) {
 }
 
 func TestBuild_ProducesValidSortedYAML(t *testing.T) {
-	g := New(filepath.Join("testdata", "templates"))
+	g := New([]string{filepath.Join("testdata", "templates")})
 	fileCfg := config.File{
 		Headers:  []string{"default.txt"},
 		Includes: []string{"sample.txt"},
@@ -108,7 +108,7 @@ func TestBuild_ProducesValidSortedYAML(t *testing.T) {
 // the same category must not duplicate that top-level key, which yaml.v3
 // rejects as a "mapping key already defined" error.
 func TestBuild_StripsDuplicateCategoryWrapperKey(t *testing.T) {
-	g := New(filepath.Join("testdata", "templates"))
+	g := New([]string{filepath.Join("testdata", "templates")})
 	fileCfg := config.File{
 		Headers: []string{"default.txt"},
 		Tasks:   []string{"wrapped-a.txt", "wrapped-b.txt"},
@@ -133,7 +133,7 @@ func TestBuild_StripsDuplicateCategoryWrapperKey(t *testing.T) {
 // "{{.GREETING}}"). It must be merged into the top-level vars: section
 // rather than corrupting the tasks: section it was combined into.
 func TestBuild_TaskSnippetCanDeclareOwnVars(t *testing.T) {
-	g := New(filepath.Join("testdata", "templates"))
+	g := New([]string{filepath.Join("testdata", "templates")})
 	fileCfg := config.File{
 		Headers: []string{"default.txt"},
 		Tasks:   []string{"with-vars.txt"},
@@ -163,10 +163,41 @@ func TestBuild_TaskSnippetCanDeclareOwnVars(t *testing.T) {
 }
 
 func TestBuild_MissingTemplateReturnsError(t *testing.T) {
-	g := New(filepath.Join("testdata", "templates"))
+	g := New([]string{filepath.Join("testdata", "templates")})
 	_, err := g.Build(config.File{Headers: []string{"missing.txt"}})
 	if err == nil {
 		t.Fatal("expected error for missing template, got nil")
+	}
+}
+
+// TemplatesDirs is a search path: a snippet missing from an earlier directory
+// falls back to the next one, and an earlier directory wins when more than
+// one contains a snippet of the same name.
+func TestBuild_TemplatesDirsIsASearchPath(t *testing.T) {
+	g := New([]string{t.TempDir(), filepath.Join("testdata", "templates")})
+	content, err := g.Build(config.File{Headers: []string{"default.txt"}})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if !strings.Contains(content, "version:") {
+		t.Errorf("expected fallback to the second directory's default.txt, got:\n%s", content)
+	}
+
+	override := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(override, "headers"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(override, "headers", "default.txt"), []byte("overridden: true"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	g = New([]string{override, filepath.Join("testdata", "templates")})
+	content, err = g.Build(config.File{Headers: []string{"default.txt"}})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if !strings.Contains(content, "overridden: true") {
+		t.Errorf("expected the first directory's default.txt to win, got:\n%s", content)
 	}
 }
 
@@ -196,7 +227,7 @@ func TestGenerateAll_WritesAndValidatesFiles(t *testing.T) {
 		},
 	}
 
-	results, err := GenerateAll(cfg, filepath.Join("testdata", "templates"), root, false)
+	results, err := GenerateAll(cfg, []string{filepath.Join("testdata", "templates")}, root, false)
 	if err != nil {
 		t.Fatalf("GenerateAll() error = %v", err)
 	}
@@ -226,7 +257,7 @@ func TestGenerateAll_DryRunDoesNotWriteFiles(t *testing.T) {
 		},
 	}
 
-	results, err := GenerateAll(cfg, filepath.Join("testdata", "templates"), root, true)
+	results, err := GenerateAll(cfg, []string{filepath.Join("testdata", "templates")}, root, true)
 	if err != nil {
 		t.Fatalf("GenerateAll() error = %v", err)
 	}
@@ -250,7 +281,7 @@ func TestGenerateAll_DryRunReportsFailureForBadFile(t *testing.T) {
 		},
 	}
 
-	results, err := GenerateAll(cfg, filepath.Join("testdata", "templates"), root, true)
+	results, err := GenerateAll(cfg, []string{filepath.Join("testdata", "templates")}, root, true)
 	if err == nil {
 		t.Fatal("expected error from GenerateAll")
 	}
@@ -270,7 +301,7 @@ func TestGenerateAll_ReportsFailureForBadFile(t *testing.T) {
 		},
 	}
 
-	results, err := GenerateAll(cfg, filepath.Join("testdata", "templates"), root, false)
+	results, err := GenerateAll(cfg, []string{filepath.Join("testdata", "templates")}, root, false)
 	if err == nil {
 		t.Fatal("expected error from GenerateAll")
 	}
@@ -297,7 +328,7 @@ func TestGenerateAll_WarnsOnDuplicateOutputPath(t *testing.T) {
 		},
 	}
 
-	results, err := GenerateAll(cfg, filepath.Join("testdata", "templates"), root, false)
+	results, err := GenerateAll(cfg, []string{filepath.Join("testdata", "templates")}, root, false)
 	if err != nil {
 		t.Fatalf("GenerateAll() error = %v", err)
 	}
@@ -323,7 +354,7 @@ func TestGenerateAll_NoWarningForDistinctPaths(t *testing.T) {
 		},
 	}
 
-	results, err := GenerateAll(cfg, filepath.Join("testdata", "templates"), root, false)
+	results, err := GenerateAll(cfg, []string{filepath.Join("testdata", "templates")}, root, false)
 	if err != nil {
 		t.Fatalf("GenerateAll() error = %v", err)
 	}

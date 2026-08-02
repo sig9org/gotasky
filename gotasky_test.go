@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,10 +13,9 @@ import (
 
 // TestGenerate_RealTemplates exercises the generator against this project's
 // real templates/ directory, to catch regressions the unit tests (which use
-// isolated fixtures) wouldn't see. It also confirms that a TEMPLATES
-// environment variable (as would be set via .env) overrides the built-in
-// "templates" default, while the config file falls back to the default
-// "config.yml" name.
+// isolated fixtures) wouldn't see. It also confirms that the config file's
+// top-level "templates" key overrides the built-in "templates" default,
+// while the config file itself falls back to the default "config.yml" name.
 func TestGenerate_RealTemplates(t *testing.T) {
 	repoRoot, err := os.Getwd()
 	if err != nil {
@@ -26,7 +26,8 @@ func TestGenerate_RealTemplates(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	configContent := `
+	configContent := fmt.Sprintf(`
+templates: [%q]
 files:
   sample:
     path: Taskfile.generated.yml
@@ -34,12 +35,10 @@ files:
     includes: [default.yml]
     vars: [greeting.yml]
     tasks: [default.yml, hello.yml]
-`
+`, templatesDir)
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(configContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	t.Setenv("TEMPLATES", templatesDir)
 
 	var stdout, stderr bytes.Buffer
 	code := cli.Run(nil, &stdout, &stderr)

@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/sig9org/gotasky/internal/config"
 	"github.com/sig9org/gotasky/internal/generator"
@@ -18,24 +20,72 @@ import (
 )
 
 const (
-	// defaultTemplatesDir is used unless overridden by the TEMPLATES
-	// variable in .env (loaded by main before Run is called) or the
-	// process environment.
+	// defaultTemplatesDir is used unless overridden by the top-level
+	// "templates" key in the config file.
 	defaultTemplatesDir = "templates"
 
 	// repoSlug is the GitHub repository that publishes gotasky release binaries.
 	repoSlug = "sig9org/gotasky"
 
-	// ansiRed/ansiYellow/ansiReset color the "[NG]"/"[WARN]" status lines so
-	// failures and warnings stand out.
+	// ansiRed/ansiOrange/ansiGray/ansiReset color, respectively, error,
+	// warning, and debug output so each stands out from normal (uncolored)
+	// messages.
 	ansiRed    = "\x1b[31m"
-	ansiYellow = "\x1b[33m"
+	ansiOrange = "\x1b[38;5;208m"
+	ansiGray   = "\x1b[90m"
 	ansiReset  = "\x1b[0m"
+
+	// debugTimestampFormat is used to prefix each [DEBUG] line.
+	debugTimestampFormat = "2006-01-02T15:04:05.000"
 )
 
 // defaultConfigNames are the config file names looked for, in order, in the
-// current directory when CONFIG isn't set.
+// current directory when -c/-config isn't set.
 var defaultConfigNames = []string{"config.yml", "config.yaml"}
+
+// flagDoc documents one flag for the aligned help output printed by
+// fs.Usage: an optional short form, its long form, and a description.
+type flagDoc struct {
+	short string
+	long  string
+	desc  string
+}
+
+// flagDocs lists every flag in the order shown by -h/-help.
+var flagDocs = []flagDoc{
+	{"c", "config <path>", "path to the config file"},
+	{"", "dryrun", "validate generation without writing any files"},
+	{"", "debug", "print detailed debug information"},
+	{"", "silent", "suppress standard output (overridden by -debug)"},
+	{"", "update", "update gotasky itself to the latest GitHub release"},
+	{"v", "version", "print the gotasky version"},
+	{"h", "help", "show this help message"},
+}
+
+// writeFlagDocs prints docs as one aligned line per flag: a fixed-width
+// short-form column (blank when a flag has no shorthand), a long-form
+// column padded to the widest entry, then the description -- so the short
+// option, long option, and description all line up across every row.
+func writeFlagDocs(out io.Writer, docs []flagDoc) {
+	const shortWidth = 4 // e.g. "-c, " or 4 blank spaces
+	const descGap = 2
+
+	longWidth := 0
+	for _, d := range docs {
+		if n := len(d.long) + 1; n > longWidth { // +1 for the leading "-"
+			longWidth = n
+		}
+	}
+
+	for _, d := range docs {
+		short := strings.Repeat(" ", shortWidth)
+		if d.short != "" {
+			short = fmt.Sprintf("-%s, ", d.short)
+		}
+		long := "-" + d.long
+		fmt.Fprintf(out, "  %s%-*s%s%s\n", short, longWidth, long, strings.Repeat(" ", descGap), d.desc)
+	}
+}
 
 // Run executes the CLI for the given arguments (typically os.Args[1:]) and
 // returns the process exit code. Output is written to stdout/stderr.
@@ -46,35 +96,19 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	var update, showVersion, debug, dryRun, silent bool
 	var configFlag string
 	fs.BoolVar(&update, "update", false, "update gotasky itself to the latest GitHub release")
-	fs.BoolVar(&update, "u", false, "update gotasky itself to the latest GitHub release (shorthand)")
 	fs.BoolVar(&showVersion, "version", false, "print the gotasky version")
 	fs.BoolVar(&showVersion, "v", false, "print the gotasky version (shorthand)")
-	fs.StringVar(&configFlag, "config", "", "path to the config file (default: CONFIG env var, or ./config.yml / ./config.yaml)")
+	fs.StringVar(&configFlag, "config", "", "path to the config file")
 	fs.StringVar(&configFlag, "c", "", "path to the config file (shorthand)")
 	fs.BoolVar(&debug, "debug", false, "print detailed debug information")
 	fs.BoolVar(&dryRun, "dryrun", false, "validate generation without writing any files")
-	fs.BoolVar(&dryRun, "d", false, "validate generation without writing any files (shorthand)")
 	fs.BoolVar(&silent, "silent", false, "suppress standard output (overridden by -debug)")
-	fs.BoolVar(&silent, "s", false, "suppress standard output (shorthand, overridden by -debug)")
 
 	fs.Usage = func() {
 		out := fs.Output()
-		fmt.Fprintf(out, "gotasky %s\n\n", version.Version)
+		fmt.Fprintf(out, "%s\n\n", version.String())
 		fmt.Fprintln(out, "Usage of gotasky:")
-		fmt.Fprintln(out, "  -c, -config <path>")
-		fmt.Fprintln(out, "        path to the config file (default: CONFIG env var, or ./config.yml / ./config.yaml)")
-		fmt.Fprintln(out, "  -d, -dryrun")
-		fmt.Fprintln(out, "        validate generation without writing any files")
-		fmt.Fprintln(out, "  -debug")
-		fmt.Fprintln(out, "        print detailed debug information")
-		fmt.Fprintln(out, "  -s, -silent")
-		fmt.Fprintln(out, "        suppress standard output (overridden by -debug)")
-		fmt.Fprintln(out, "  -u, -update")
-		fmt.Fprintln(out, "        update gotasky itself to the latest GitHub release")
-		fmt.Fprintln(out, "  -v, -version")
-		fmt.Fprintln(out, "        print the gotasky version")
-		fmt.Fprintln(out, "  -h, --help")
-		fmt.Fprintln(out, "        show this help message")
+		writeFlagDocs(out, flagDocs)
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -92,7 +126,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 	switch {
 	case showVersion:
-		fmt.Fprintln(stdout, version.Version)
+		fmt.Fprintln(stdout, version.String())
 		return 0
 	case update:
 		return runUpdate(stdout, stderr)
@@ -103,12 +137,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 func runGenerate(stdout, stderr io.Writer, configFlag string, debug, dryRun, silent bool) int {
 	configPath := configPathOrDefault(configFlag)
-	templatesDir := envOr("TEMPLATES", defaultTemplatesDir)
 
 	if debug {
-		fmt.Fprintf(stderr, "[DEBUG] config file: %s\n", configPath)
-		fmt.Fprintf(stderr, "[DEBUG] templates dir: %s\n", templatesDir)
-		fmt.Fprintf(stderr, "[DEBUG] dry run: %v\n", dryRun)
+		debugf(stdout, "config file: %s", configPath)
+		debugf(stdout, "dry run: %v", dryRun)
 	}
 
 	cfg, err := config.Load(configPath)
@@ -117,14 +149,17 @@ func runGenerate(stdout, stderr io.Writer, configFlag string, debug, dryRun, sil
 		return 1
 	}
 
+	templatesDirs := templatesDirsOrDefault(cfg.Templates)
+
 	if debug {
-		debugLogConfig(stderr, cfg)
+		debugf(stdout, "templates dirs: %v", templatesDirs)
+		debugLogConfig(stdout, cfg)
 	}
 
-	results, err := generator.GenerateAll(cfg, templatesDir, ".", dryRun)
+	results, err := generator.GenerateAll(cfg, templatesDirs, ".", dryRun)
 	for _, result := range results {
 		if result.Warning != "" {
-			fmt.Fprintf(stderr, "%s[WARN] %s: %s%s\n", ansiYellow, result.Name, result.Warning, ansiReset)
+			fmt.Fprintf(stderr, "%s[WARN] %s: %s%s\n", ansiOrange, result.Name, result.Warning, ansiReset)
 		}
 		switch {
 		case result.Error != nil:
@@ -143,6 +178,11 @@ func runGenerate(stdout, stderr io.Writer, configFlag string, debug, dryRun, sil
 	return 0
 }
 
+// debugf writes a single timestamped, gray-colored "[DEBUG]" line to out.
+func debugf(out io.Writer, format string, args ...any) {
+	fmt.Fprintf(out, "%s[DEBUG] %s %s%s\n", ansiGray, time.Now().Format(debugTimestampFormat), fmt.Sprintf(format, args...), ansiReset)
+}
+
 // debugLogConfig writes the parsed config's file entries to out, one file
 // per line block, in a stable name-sorted order.
 func debugLogConfig(out io.Writer, cfg *config.Config) {
@@ -154,11 +194,11 @@ func debugLogConfig(out io.Writer, cfg *config.Config) {
 
 	for _, name := range names {
 		fileCfg := cfg.Files[name]
-		fmt.Fprintf(out, "[DEBUG] %s -> %s\n", name, fileCfg.Path)
-		fmt.Fprintf(out, "[DEBUG]   headers:  %v\n", fileCfg.Headers)
-		fmt.Fprintf(out, "[DEBUG]   includes: %v\n", fileCfg.Includes)
-		fmt.Fprintf(out, "[DEBUG]   vars:     %v\n", fileCfg.Vars)
-		fmt.Fprintf(out, "[DEBUG]   tasks:    %v\n", fileCfg.Tasks)
+		debugf(out, "%s -> %s", name, fileCfg.Path)
+		debugf(out, "  headers:  %v", fileCfg.Headers)
+		debugf(out, "  includes: %v", fileCfg.Includes)
+		debugf(out, "  vars:     %v", fileCfg.Vars)
+		debugf(out, "  tasks:    %v", fileCfg.Tasks)
 	}
 }
 
@@ -180,26 +220,13 @@ func runUpdate(stdout, stderr io.Writer) int {
 	}
 }
 
-// envOr reads key from the process environment (populated from .env by
-// main, when present), falling back to fallback when unset or empty. This
-// is how .env values take priority over the built-in defaults.
-func envOr(key, fallback string) string {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
-		return v
-	}
-	return fallback
-}
-
 // configPathOrDefault returns flagValue (the -c/-config flag) when set,
-// otherwise the CONFIG environment variable when set, otherwise the first of
-// defaultConfigNames that exists in the current directory, otherwise
-// defaultConfigNames[0] (so a missing-config error names a concrete file).
+// otherwise the first of defaultConfigNames that exists in the current
+// directory, otherwise defaultConfigNames[0] (so a missing-config error
+// names a concrete file).
 func configPathOrDefault(flagValue string) string {
 	if flagValue != "" {
 		return flagValue
-	}
-	if v, ok := os.LookupEnv("CONFIG"); ok && v != "" {
-		return v
 	}
 	for _, name := range defaultConfigNames {
 		if _, err := os.Stat(name); err == nil {
@@ -207,4 +234,14 @@ func configPathOrDefault(flagValue string) string {
 		}
 	}
 	return defaultConfigNames[0]
+}
+
+// templatesDirsOrDefault returns dirs (the config file's top-level
+// "templates" key) when non-empty, otherwise the built-in single-directory
+// default.
+func templatesDirsOrDefault(dirs []string) []string {
+	if len(dirs) > 0 {
+		return dirs
+	}
+	return []string{defaultTemplatesDir}
 }
