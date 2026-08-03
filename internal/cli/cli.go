@@ -184,7 +184,12 @@ func debugf(out io.Writer, format string, args ...any) {
 }
 
 // debugLogConfig writes the parsed config's file entries to out, one file
-// per line block, in a stable name-sorted order.
+// per line block, in a stable name-sorted order. For a file that references
+// one or more sets, it also names those sets and, per set, exactly which
+// headers/includes/vars/tasks that set contributed -- before printing the
+// file's final, already-resolved (set contents merged in) per-category
+// lists -- so -debug can answer "which set brought in which snippet?", not
+// just "what's the final list?".
 func debugLogConfig(out io.Writer, cfg *config.Config) {
 	names := make([]string, 0, len(cfg.Files))
 	for name := range cfg.Files {
@@ -195,6 +200,13 @@ func debugLogConfig(out io.Writer, cfg *config.Config) {
 	for _, name := range names {
 		fileCfg := cfg.Files[name]
 		debugf(out, "%s -> %s", name, fileCfg.Path)
+		if len(fileCfg.Sets) > 0 {
+			debugf(out, "  sets: %v", fileCfg.Sets)
+			for _, setName := range fileCfg.Sets {
+				set := cfg.Sets[setName]
+				debugf(out, "    %s -> headers: %v, includes: %v, vars: %v, tasks: %v", setName, set.Headers, set.Includes, set.Vars, set.Tasks)
+			}
+		}
 		debugf(out, "  headers:  %v", fileCfg.Headers)
 		debugf(out, "  includes: %v", fileCfg.Includes)
 		debugf(out, "  vars:     %v", fileCfg.Vars)

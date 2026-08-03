@@ -23,32 +23,34 @@ If you maintain several projects with `go-task`, you tend to reuse the same hand
 2. You write a config file (`config.yml` by default) listing one or more output files, each naming which snippets to combine:
 
    ```yaml
+   sets:
+     common:
+       vars:
+         - cleanup.txt
+       tasks:
+         - default.txt
+         - time.txt
+         - cleanup.txt
+
    files:
      os-update:
        path: "taskfiles/os-update/Taskfile.yml"
+       sets: [common]
        headers:
          - default.txt
        includes:
          - common.txt
        vars:
-         - cleanup.txt
          - os-update.txt
        tasks:
-         - default.txt
-         - time.txt
-         - cleanup.txt
          - os-update.txt
 
      terraform:
        path: "taskfiles/terraform/Taskfile.yml"
+       sets: [common]
        headers:
          - env.txt
-       vars:
-         - cleanup.txt
        tasks:
-         - default.txt
-         - time.txt
-         - cleanup.txt
          - terraform.txt
    ```
 
@@ -66,6 +68,30 @@ For every generated file, gotasky guarantees:
 - If two or more files in the config share the same `path`, every one after the first (alphabetically, by file name) prints an orange `[WARN]` to stderr, since one silently overwrites the other's output in the same run. This is a warning, not a failure — it doesn't affect the exit code.
 
 `gotasky` exits `0` only if every file in the config generated successfully; if any file fails, it exits non-zero (and still reports every file's individual `[OK]`/`[NG]` status).
+
+### Reusing snippet lists with sets
+
+If several output files share the same handful of snippets (as `os-update` and `terraform` do above), you can factor them out once as a named **set**, via an optional top-level `sets` key, instead of repeating them in every file:
+
+```yaml
+sets:
+  common:
+    headers: [default.txt]   # any of headers/includes/vars/tasks
+    vars: [cleanup.txt]
+    tasks: [default.txt, time.txt, cleanup.txt]
+```
+
+Any file can then pull a set in via its own `sets` key:
+
+```yaml
+files:
+  os-update:
+    path: "taskfiles/os-update/Taskfile.yml"
+    sets: [common]
+    tasks: [os-update.txt]
+```
+
+A file can reference more than one set (`sets: [common, extra]`); each set's snippets are merged in, in the order listed, ahead of the file's own directly-listed snippets, per category. Referencing a set name that isn't defined under `sets` is a config error.
 
 ## Sample generated Taskfiles
 
@@ -109,6 +135,8 @@ Usage of gotasky:
 ```
 
 `-silent` suppresses the `[OK]` lines gotasky normally prints to stdout; `[NG]` failures are always reported on stderr regardless, and the exit code is unaffected. If `-debug` is also given, `-debug` wins: silent is ignored and normal (`[DEBUG]` and `[OK]`) output is printed.
+
+For a file that references one or more [sets](#reusing-snippet-lists-with-sets), `-debug` also names the referenced sets and, per set, exactly which headers/includes/vars/tasks that set contributed — not just the file's final, already-merged list.
 
 ### Configuring paths
 
