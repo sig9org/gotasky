@@ -331,6 +331,34 @@ func TestRun_DebugFlagPrintsDiagnostics(t *testing.T) {
 	}
 }
 
+// -debug must show the resolved Config.Ignore list, since it's part of how
+// templatesDirs gets scanned for the duplicate-filename check.
+func TestRun_DebugFlagPrintsIgnoreList(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeTemplateFixtures(t, filepath.Join(dir, "templates"))
+	content := "ignore:\n  - .DS_Store\n  - .gitkeep\n" +
+		"files:\n" +
+		"  default:\n" +
+		"    path: Taskfile.yml\n" +
+		"    headers: [default.txt]\n" +
+		"    vars: [sample.txt]\n" +
+		"    tasks: [sample.txt]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-debug"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "ignore: [.DS_Store .gitkeep]") {
+		t.Errorf("expected debug output to list ignored filenames, got: %s", stdout.String())
+	}
+}
+
 // -debug on a file that references a set must name the set and show what
 // that set individually contributed per category, not just the file's
 // final merged lists.
@@ -474,16 +502,20 @@ func TestRun_GenerateHonorsMultipleTemplatesDirs(t *testing.T) {
 	sharedDir := filepath.Join(dir, "shared-templates")
 	writeTemplateFixtures(t, sharedDir)
 
+	// project-templates supplies a snippet under a name not present in
+	// shared-templates, so there's no filename overlap between the two
+	// dirs — only a genuinely missing category (headers, tasks) falls back
+	// to shared-templates.
 	projectDir := filepath.Join(dir, "project-templates")
 	if err := os.MkdirAll(filepath.Join(projectDir, "vars"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(projectDir, "vars", "sample.txt"), []byte("  ONLY_HERE:\n    - x\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectDir, "vars", "only-here.txt"), []byte("  ONLY_HERE:\n    - x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	content := fmt.Sprintf(
-		"templates: [%q, %q]\nfiles:\n  default:\n    path: Taskfile.yml\n    headers: [default.txt]\n    vars: [sample.txt]\n    tasks: [sample.txt]\n",
+		"templates: [%q, %q]\nfiles:\n  default:\n    path: Taskfile.yml\n    headers: [default.txt]\n    vars: [only-here.txt]\n    tasks: [sample.txt]\n",
 		projectDir, sharedDir,
 	)
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
@@ -501,10 +533,45 @@ func TestRun_GenerateHonorsMultipleTemplatesDirs(t *testing.T) {
 		t.Fatalf("expected generated Taskfile.yml: %v", err)
 	}
 	if !strings.Contains(string(data), "ONLY_HERE") {
-		t.Errorf("expected the project-templates override (vars/sample.txt) to be used, got:\n%s", data)
+		t.Errorf("expected project-templates' vars/only-here.txt to be used, got:\n%s", data)
 	}
 	if !strings.Contains(string(data), "version:") {
 		t.Errorf("expected headers/default.txt to fall back to shared-templates, got:\n%s", data)
+	}
+}
+
+// A filename present in more than one configured templates directory is a
+// configuration mistake, not a "first directory wins" search-path case —
+// generation must fail before writing anything.
+func TestRun_GenerateFailsOnDuplicateTemplateFilenameAcrossDirs(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	firstDir := filepath.Join(dir, "first-templates")
+	writeTemplateFixtures(t, firstDir)
+
+	secondDir := filepath.Join(dir, "second-templates")
+	writeTemplateFixtures(t, secondDir)
+
+	content := fmt.Sprintf(
+		"templates: [%q, %q]\nfiles:\n  default:\n    path: Taskfile.yml\n    headers: [default.txt]\n    vars: [sample.txt]\n    tasks: [sample.txt]\n",
+		firstDir, secondDir,
+	)
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(nil, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "[ERROR]Duplicate template filenames") {
+		t.Errorf("expected stderr to mention duplicate template filenames, got: %q", stderr.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "Taskfile.yml")); !os.IsNotExist(err) {
+		t.Errorf("expected no output file to be written when duplicate templates are detected, stat err = %v", err)
 	}
 }
 

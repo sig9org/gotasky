@@ -45,6 +45,53 @@ files:
 	}
 }
 
+func TestLoad_ParsesIgnoreSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yml")
+	content := `
+ignore:
+  - .git
+  - .gitkeep
+files:
+  default:
+    path: Taskfile.yml
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.Ignore) != 2 || cfg.Ignore[0] != ".git" || cfg.Ignore[1] != ".gitkeep" {
+		t.Errorf("Ignore = %v, want [.git .gitkeep]", cfg.Ignore)
+	}
+}
+
+func TestLoad_OmittedIgnoreIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yml")
+	content := `
+files:
+  default:
+    path: Taskfile.yml
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.Ignore) != 0 {
+		t.Errorf("Ignore = %v, want empty", cfg.Ignore)
+	}
+}
+
 func TestLoad_MissingFileReturnsError(t *testing.T) {
 	if _, err := Load(filepath.Join(t.TempDir(), "missing.yml")); err == nil {
 		t.Fatal("expected error for missing config file")

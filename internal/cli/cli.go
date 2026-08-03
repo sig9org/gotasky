@@ -145,7 +145,7 @@ func runGenerate(stdout, stderr io.Writer, configFlag string, debug, dryRun, sil
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		fmt.Fprintf(stderr, "%s%s%s\n", ansiRed, err, ansiReset)
 		return 1
 	}
 
@@ -153,10 +153,18 @@ func runGenerate(stdout, stderr io.Writer, configFlag string, debug, dryRun, sil
 
 	if debug {
 		debugf(stdout, "templates dirs: %v", templatesDirs)
+		debugf(stdout, "ignore: %v", cfg.Ignore)
 		debugLogConfig(stdout, cfg)
 	}
 
 	results, err := generator.GenerateAll(cfg, templatesDirs, ".", dryRun)
+	if err != nil && len(results) == 0 {
+		// A fatal error with no per-file results (e.g. duplicate template
+		// filenames across templatesDirs) has nothing to report in the
+		// [OK]/[NG] loop below, so it must be printed here instead.
+		fmt.Fprintf(stderr, "%s[ERROR]%s%s\n", ansiRed, err, ansiReset)
+		return 1
+	}
 	for _, result := range results {
 		if result.Warning != "" {
 			fmt.Fprintf(stderr, "%s[WARN] %s: %s%s\n", ansiOrange, result.Name, result.Warning, ansiReset)
