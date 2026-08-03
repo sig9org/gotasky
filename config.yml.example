@@ -1,13 +1,19 @@
 # templates is optional: a list of one or more directories to search for
-# snippets, in order. The first directory that has a given snippet wins, so
-# a project-specific directory can be layered on top of a shared one. A
-# listed directory that doesn't exist is simply skipped, not an error --
-# generation only fails if a snippet isn't found in any of them. If
-# "templates" is omitted entirely, gotasky falls back to ./templates.
+# snippets, in order. A directory later in the list fills in a snippet
+# missing from an earlier one, so a project-specific directory can be
+# layered on top of a shared one. A listed directory that doesn't exist is
+# simply skipped, not an error -- generation only fails if a snippet isn't
+# found in any of them. The same filename present in more than one
+# directory (for the same headers/includes/vars/tasks category) is a
+# configuration error, not a "first directory wins" case -- generation
+# fails up front rather than silently picking one. If "templates" is
+# omitted entirely, gotasky falls back to ./templates.
 templates:
-  - templates
-  # - project-templates
-  # - shared-templates
+  - templates/public
+  - templates/private
+ignore:
+  - .DS_Store
+  - .gitkeep
 sets:
   default:
     headers:
@@ -16,14 +22,14 @@ sets:
       - greeting.yml
 files:
   hello:
-    path: "taskfiles/hello/Taskfile.yml"
+    path: "taskfiles/public/hello/Taskfile.yml"
     headers:
       - default.yml
     tasks:
       - default.yml
       - hello.yml
   include:
-    path: "taskfiles/include/Taskfile.yml"
+    path: "taskfiles/private/include/Taskfile.yml"
     sets: [default]
     includes:
       - default.yml

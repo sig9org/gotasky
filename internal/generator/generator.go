@@ -28,6 +28,10 @@ var entryPattern = regexp.MustCompile(`^ {2}\S[^:\n]*:`)
 // "vars:" entry.
 var sectionCategories = []string{"vars", "tasks", "includes"}
 
+// templateCategories are every snippet folder gotasky reads from under a
+// templates directory.
+var templateCategories = []string{"headers", "includes", "vars", "tasks"}
+
 // Generator renders Taskfile bodies from template snippets under
 // TemplatesDirs, a search path of one or more directories: for a given
 // snippet, each directory is tried in order and the first match wins. This
@@ -217,6 +221,82 @@ func entryKey(block []string) string {
 	return strings.ToLower(line)
 }
 
+// checkNoDuplicateTemplates reports an error if any template category
+// folder (headers, includes, vars, tasks) has the same filename present in
+// more than one of templatesDirs. TemplatesDirs is meant to be a search
+// path for filling in snippets *missing* from one directory (e.g. a
+// project-specific directory layered on a shared one), not a place to
+// silently shadow one directory's snippet with another's — so a filename
+// duplicated across directories is a configuration mistake, reported
+// up front rather than resolved by "first directory wins". A listed
+// directory that doesn't exist, or has no folder for a given category, is
+// skipped rather than treated as an error. Filenames listed in ignore
+// (config.Config.Ignore, e.g. stray ".DS_Store"/".gitkeep" files) are
+// skipped entirely, as if they weren't there.
+func checkNoDuplicateTemplates(templatesDirs, ignore []string) error {
+	ignored := make(map[string]bool, len(ignore))
+	for _, name := range ignore {
+		ignored[name] = true
+	}
+
+	type problem struct {
+		label string // "<category>/<filename>"
+		dirs  string
+	}
+	var problems []problem
+
+	for _, category := range templateCategories {
+		locations := map[string][]string{}
+		for _, dir := range templatesDirs {
+			entries, err := os.ReadDir(filepath.Join(dir, category))
+			if err != nil {
+				continue
+			}
+			for _, entry := range entries {
+				if entry.IsDir() || ignored[entry.Name()] {
+					continue
+				}
+				locations[entry.Name()] = append(locations[entry.Name()], dir)
+			}
+		}
+
+		names := make([]string, 0, len(locations))
+		for name := range locations {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		for _, name := range names {
+			dirs := locations[name]
+			if len(dirs) > 1 {
+				problems = append(problems, problem{
+					label: category + "/" + name,
+					dirs:  strings.Join(dirs, ", "),
+				})
+			}
+		}
+	}
+
+	if len(problems) == 0 {
+		return nil
+	}
+
+	// Right-pad every label to the widest one so the "->" arrows line up
+	// into a column, regardless of category/filename length.
+	maxLabel := 0
+	for _, p := range problems {
+		if len(p.label) > maxLabel {
+			maxLabel = len(p.label)
+		}
+	}
+	lines := make([]string, len(problems))
+	for i, p := range problems {
+		lines[i] = fmt.Sprintf("%-*s -> %s", maxLabel, p.label, p.dirs)
+	}
+
+	return fmt.Errorf("Duplicate template filenames across template directories:\n  %s", strings.Join(lines, "\n  "))
+}
+
 // ValidateYAML reports an error if content is not syntactically valid YAML.
 func ValidateYAML(content string) error {
 	var out any
@@ -232,13 +312,22 @@ type Result struct {
 }
 
 // GenerateAll renders every file described by cfg, under rootDir, validating
-// each as YAML. When dryRun is true, files are built and validated but not
-// written to disk. If two or more files in cfg share the same Path, every
-// one after the first (in name-sorted order) gets a non-empty Warning, since
-// generating them in the same run means one silently overwrites another.
-// It returns one Result per file (in a stable, name-sorted order) and a
-// non-nil error if any file failed.
+// each as YAML. It first checks templatesDirs for any template category
+// (headers, includes, vars, tasks) that has the same filename in more than
+// one directory, returning a nil result slice and an error immediately if
+// so — see checkNoDuplicateTemplates. Filenames listed in cfg.Ignore are
+// excluded from that check, as if they didn't exist. When dryRun is true,
+// files are built and validated but not written to disk. If two or more
+// files in cfg share the same Path, every one after the first (in
+// name-sorted order) gets a non-empty Warning, since generating them in the
+// same run means one silently overwrites another. It returns one Result
+// per file (in a stable, name-sorted order) and a non-nil error if any file
+// failed.
 func GenerateAll(cfg *config.Config, templatesDirs []string, rootDir string, dryRun bool) ([]Result, error) {
+	if err := checkNoDuplicateTemplates(templatesDirs, cfg.Ignore); err != nil {
+		return nil, err
+	}
+
 	g := New(templatesDirs)
 
 	names := make([]string, 0, len(cfg.Files))

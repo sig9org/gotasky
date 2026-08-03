@@ -201,6 +201,115 @@ func TestBuild_TemplatesDirsIsASearchPath(t *testing.T) {
 	}
 }
 
+// A filename present in more than one templates directory, for any of the
+// four snippet categories, must fail generation up front rather than being
+// silently resolved by "first directory wins" — regardless of whether any
+// config.File actually references that filename.
+func TestGenerateAll_FailsOnDuplicateTemplateFilenameAcrossDirs(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	for _, dir := range []string{dirA, dirB} {
+		if err := os.MkdirAll(filepath.Join(dir, "headers"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "headers", "default.txt"), []byte("version: '3'\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cfg := &config.Config{
+		Files: map[string]config.File{
+			"default": {Path: "Taskfile.yml", Headers: []string{"default.txt"}},
+		},
+	}
+
+	root := t.TempDir()
+	results, err := GenerateAll(cfg, []string{dirA, dirB}, root, false)
+	if err == nil {
+		t.Fatal("expected error from GenerateAll")
+	}
+	if results != nil {
+		t.Errorf("expected no results when template dirs have duplicate filenames, got: %+v", results)
+	}
+	if !strings.Contains(err.Error(), "headers/default.txt") {
+		t.Errorf("expected error to name the duplicated file, got: %v", err)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(root, "Taskfile.yml")); !os.IsNotExist(statErr) {
+		t.Errorf("expected no output file to be written, stat err = %v", statErr)
+	}
+}
+
+// A filename listed in config.Config.Ignore must be excluded from the
+// duplicate check entirely, even though it's genuinely present in more than
+// one templates directory -- this is how stray files like ".DS_Store" that
+// an editor or OS drops into a templates directory are kept from being
+// mistaken for a duplicated snippet.
+func TestGenerateAll_IgnoresListedFilenamesInDuplicateCheck(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	for _, dir := range []string{dirA, dirB} {
+		if err := os.MkdirAll(filepath.Join(dir, "headers"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "headers", ".DS_Store"), []byte("junk"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dirA, "headers", "default.txt"), []byte("version: '3'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Ignore: []string{".DS_Store"},
+		Files: map[string]config.File{
+			"default": {Path: "Taskfile.yml", Headers: []string{"default.txt"}},
+		},
+	}
+
+	root := t.TempDir()
+	results, err := GenerateAll(cfg, []string{dirA, dirB}, root, false)
+	if err != nil {
+		t.Fatalf("GenerateAll() error = %v, results = %+v", err, results)
+	}
+}
+
+// Duplicate detection is per templates-directory pair, independent of
+// whether a config.File actually references the duplicated snippet — an
+// unused vars/ file duplicated across dirs must still be flagged.
+func TestGenerateAll_FailsOnDuplicateEvenWhenUnreferenced(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	for _, dir := range []string{dirA, dirB} {
+		if err := os.MkdirAll(filepath.Join(dir, "vars"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "vars", "unused.txt"), []byte("  X:\n    - 1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(dirA, "headers"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirA, "headers", "default.txt"), []byte("version: '3'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Files: map[string]config.File{
+			"default": {Path: "Taskfile.yml", Headers: []string{"default.txt"}},
+		},
+	}
+
+	_, err := GenerateAll(cfg, []string{dirA, dirB}, t.TempDir(), false)
+	if err == nil {
+		t.Fatal("expected error from GenerateAll for unreferenced duplicate")
+	}
+	if !strings.Contains(err.Error(), "vars/unused.txt") {
+		t.Errorf("expected error to name the duplicated file, got: %v", err)
+	}
+}
+
 func TestValidateYAML_RejectsInvalidYAML(t *testing.T) {
 	err := ValidateYAML("foo: [1, 2")
 	if err == nil {

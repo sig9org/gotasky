@@ -66,8 +66,21 @@ For every generated file, gotasky guarantees:
 - The generated content is parsed as YAML before being reported as OK; a snippet that produces invalid YAML is reported as a failure (`[NG]`), with the parse error printed to stderr, instead of silently corrupting the output.
 - A snippet may declare its own `vars:`, `tasks:`, and/or `includes:` line(s) — e.g. a snippet under `templates/tasks/` that needs a variable only that task uses can include its own `vars:` block alongside its `tasks:` block. Each labeled part is merged into the matching top-level section instead of duplicating the key or corrupting the section it was combined into.
 - If two or more files in the config share the same `path`, every one after the first (alphabetically, by file name) prints an orange `[WARN]` to stderr, since one silently overwrites the other's output in the same run. This is a warning, not a failure — it doesn't affect the exit code.
+- If the same filename shows up in more than one [configured templates directory](#configuring-paths), for the same category, that's a configuration error — see below — and fails the whole run before any file is generated.
 
 `gotasky` exits `0` only if every file in the config generated successfully; if any file fails, it exits non-zero (and still reports every file's individual `[OK]`/`[NG]` status).
+
+### Output and colors
+
+Every status/diagnostic line gotasky prints is colored consistently, whether or not stdout/stderr is a terminal:
+
+| Prefix    | Color   | Meaning                                                                 |
+| --------- | ------- | ------------------------------------------------------------------------ |
+| `[OK]`    | none    | a file generated successfully                                          |
+| `[WARN]`  | orange  | non-fatal issue, e.g. two files writing the same output `path`         |
+| `[NG]`    | red     | a single file failed to generate (e.g. a missing snippet, invalid YAML)|
+| `[ERROR]` | red     | the whole run failed before any file was generated (e.g. an invalid config file, or [duplicate template filenames](#configuring-paths)) |
+| `[DEBUG]` | gray    | `-debug` diagnostics, each timestamped                                 |
 
 ### Reusing snippet lists with sets
 
@@ -134,7 +147,7 @@ Usage of gotasky:
   -h, -help           show this help message
 ```
 
-`-silent` suppresses the `[OK]` lines gotasky normally prints to stdout; `[NG]` failures are always reported on stderr regardless, and the exit code is unaffected. If `-debug` is also given, `-debug` wins: silent is ignored and normal (`[DEBUG]` and `[OK]`) output is printed.
+`-silent` suppresses the `[OK]` lines gotasky normally prints to stdout; `[WARN]`/`[NG]`/`[ERROR]` failures are always reported on stderr regardless, and the exit code is unaffected. If `-debug` is also given, `-debug` wins: silent is ignored and normal (`[DEBUG]` and `[OK]`) output is printed.
 
 For a file that references one or more [sets](#reusing-snippet-lists-with-sets), `-debug` also names the referenced sets and, per set, exactly which headers/includes/vars/tasks that set contributed — not just the file's final, already-merged list.
 
@@ -147,7 +160,7 @@ By default, gotasky looks for:
 
 The config file path can be set with `-c`/`-config`; there's no other way to point at one (no settings file, no environment variable) — the flag and the two built-in filenames are the whole story. A config file cannot name its own path from inside itself, either: a top-level `config` key is rejected with an error rather than silently ignored, since that would be contradictory (the path has to be resolved before the file can even be read).
 
-The template directories are configured from *inside* the config file itself, via an optional top-level `templates` key — a YAML list of one or more directories, searched in order. The first directory that has a given snippet wins, so a project-specific directory can be layered on top of a shared one; a listed directory that doesn't exist is simply skipped, not an error — generation only fails if a snippet isn't found in any of them:
+The template directories are configured from *inside* the config file itself, via an optional top-level `templates` key — a YAML list of one or more directories, searched in order. A directory later in the list fills in a snippet that's *missing* from an earlier one, so a project-specific directory can be layered on top of a shared one; a listed directory that doesn't exist is simply skipped, not an error — generation only fails if a snippet isn't found in any of them:
 
 ```yaml
 # config.yml
@@ -163,6 +176,30 @@ files:
 ```
 
 If `templates` is omitted, gotasky falls back to `./templates`.
+
+This search path is only for filling gaps, never for shadowing: if the same filename exists in more than one configured directory, for the same category (`headers`/`includes`/`vars`/`tasks`), that's a configuration mistake rather than a "first directory wins" case. Generation fails up front, before any file is built, with an `[ERROR]` naming every duplicate and the directories it was found in:
+
+```
+[ERROR]Duplicate template filenames across template directories:
+  headers/default.yml -> templates/shared, templates/project
+  tasks/cleanup.yml   -> templates/shared, templates/project
+```
+
+#### Ignoring stray files
+
+An optional top-level `ignore` key lists filenames to exclude from every configured templates directory — useful for stray files an editor or OS drops into them (`.DS_Store`, `.gitkeep`, ...) that aren't real snippets. Ignored filenames are skipped by the duplicate-filename check above, as if they weren't there:
+
+```yaml
+# config.yml
+templates:
+  - templates/shared
+  - templates/project
+ignore:
+  - .DS_Store
+  - .gitkeep
+```
+
+If `ignore` is omitted, every file is processed as before — nothing is excluded.
 
 ### Self-update
 

@@ -40,9 +40,15 @@ type Config struct {
 	// overriding the built-in "templates" default. Multiple directories let
 	// snippets be spread across more than one location, e.g. a
 	// project-specific directory layered on top of a shared one.
-	Templates []string        `yaml:"templates"`
-	Sets      map[string]Set  `yaml:"sets"`
-	Files     map[string]File `yaml:"files"`
+	Templates []string `yaml:"templates"`
+	// Ignore lists filenames (e.g. stray ".DS_Store"/".gitkeep" files sitting
+	// in a templates directory) to exclude from every templatesDirs
+	// directory scan -- currently just the duplicate-filename check -- so
+	// they're never treated as snippets. Omitting it processes every file as
+	// before.
+	Ignore []string        `yaml:"ignore"`
+	Sets   map[string]Set  `yaml:"sets"`
+	Files  map[string]File `yaml:"files"`
 }
 
 // Load reads and parses a gotasky config file from path.
