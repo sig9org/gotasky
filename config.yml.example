@@ -8,7 +8,12 @@ templates:
   - templates
   # - project-templates
   # - shared-templates
-
+sets:
+  default:
+    headers:
+      - default.yml
+    tasks:
+      - greeting.yml
 files:
   hello:
     path: "taskfiles/hello/Taskfile.yml"
@@ -19,9 +24,6 @@ files:
       - hello.yml
   include:
     path: "taskfiles/include/Taskfile.yml"
-    headers:
-      - default.yml
+    sets: [default]
     includes:
       - default.yml
-    tasks:
-      - greeting.yml

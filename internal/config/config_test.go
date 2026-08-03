@@ -84,3 +84,82 @@ func TestLoad_InvalidYAMLReturnsError(t *testing.T) {
 		t.Fatal("expected error for invalid YAML config")
 	}
 }
+
+// A file can reference more than one set; each set's snippets are merged
+// in, ahead of the file's own directly-listed snippets, in the order the
+// sets are named.
+func TestLoad_ResolvesMultipleSets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yml")
+	content := `
+sets:
+  common:
+    headers: [default.txt]
+    vars: [common.txt]
+    tasks: [common.txt]
+  extra:
+    includes: [extra.txt]
+    tasks: [extra.txt]
+
+files:
+  default:
+    path: Taskfile.yml
+    sets: [common, extra]
+    tasks: [own.txt]
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	f, ok := cfg.Files["default"]
+	if !ok {
+		t.Fatal(`expected "default" file entry`)
+	}
+	if got, want := f.Headers, []string{"default.txt"}; !equalSlices(got, want) {
+		t.Errorf("Headers = %v, want %v", got, want)
+	}
+	if got, want := f.Includes, []string{"extra.txt"}; !equalSlices(got, want) {
+		t.Errorf("Includes = %v, want %v", got, want)
+	}
+	if got, want := f.Vars, []string{"common.txt"}; !equalSlices(got, want) {
+		t.Errorf("Vars = %v, want %v", got, want)
+	}
+	if got, want := f.Tasks, []string{"common.txt", "extra.txt", "own.txt"}; !equalSlices(got, want) {
+		t.Errorf("Tasks = %v, want %v", got, want)
+	}
+}
+
+func TestLoad_UnknownSetReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.yml")
+	content := `
+files:
+  default:
+    path: Taskfile.yml
+    sets: [missing]
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected error for unknown set reference")
+	}
+}
+
+func equalSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

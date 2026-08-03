@@ -331,6 +331,41 @@ func TestRun_DebugFlagPrintsDiagnostics(t *testing.T) {
 	}
 }
 
+// -debug on a file that references a set must name the set and show what
+// that set individually contributed per category, not just the file's
+// final merged lists.
+func TestRun_DebugFlagPrintsSetContributions(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeTemplateFixtures(t, filepath.Join(dir, "templates"))
+	content := "sets:\n" +
+		"  common:\n" +
+		"    headers: [default.txt]\n" +
+		"    vars: [sample.txt]\n" +
+		"files:\n" +
+		"  default:\n" +
+		"    path: Taskfile.yml\n" +
+		"    sets: [common]\n" +
+		"    tasks: [sample.txt]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-debug"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "sets: [common]") {
+		t.Errorf("expected debug output to name the referenced set, got: %s", out)
+	}
+	if !strings.Contains(out, "common -> headers: [default.txt], includes: [], vars: [sample.txt], tasks: []") {
+		t.Errorf("expected debug output to show the set's own per-category contribution, got: %s", out)
+	}
+}
+
 // -silent must suppress all stdout output, while still writing files and
 // reporting errors on stderr as usual.
 func TestRun_SilentFlagSuppressesStdout(t *testing.T) {
