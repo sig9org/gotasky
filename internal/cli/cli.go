@@ -193,10 +193,10 @@ func debugf(out io.Writer, format string, args ...any) {
 
 // debugLogConfig writes the parsed config's file entries to out, one file
 // per line block, in a stable name-sorted order. For a file that references
-// one or more sets, it also names those sets and, per set, exactly which
-// headers/includes/vars/tasks that set contributed -- before printing the
-// file's final, already-resolved (set contents merged in) per-category
-// lists -- so -debug can answer "which set brought in which snippet?", not
+// one or more presets, it also names those presets and, per preset, exactly
+// which Root Schema categories that preset contributed -- before printing
+// the file's final, already-resolved (preset contents merged in) per-category
+// lists -- so -debug can answer "which preset brought in which snippet?", not
 // just "what's the final list?".
 func debugLogConfig(out io.Writer, cfg *config.Config) {
 	names := make([]string, 0, len(cfg.Files))
@@ -208,14 +208,14 @@ func debugLogConfig(out io.Writer, cfg *config.Config) {
 	for _, name := range names {
 		fileCfg := cfg.Files[name]
 		debugf(out, "%s -> %s", name, fileCfg.Path)
-		if len(fileCfg.Sets) > 0 {
-			debugf(out, "  sets: %v", fileCfg.Sets)
-			for _, setName := range fileCfg.Sets {
-				set := cfg.Sets[setName]
-				debugf(out, "    %s -> headers: %v, includes: %v, vars: %v, tasks: %v", setName, set.Headers, set.Includes, set.Vars, set.Tasks)
+		if len(fileCfg.Presets) > 0 {
+			debugf(out, "  presets: %v", fileCfg.Presets)
+			for _, presetName := range fileCfg.Presets {
+				preset := cfg.Presets[presetName]
+				debugf(out, "    %s -> version: %v, includes: %v, vars: %v, tasks: %v", presetName, preset.Version, preset.Includes, preset.Vars, preset.Tasks)
 			}
 		}
-		debugf(out, "  headers:  %v", fileCfg.Headers)
+		debugf(out, "  version:  %v", fileCfg.Version)
 		debugf(out, "  includes: %v", fileCfg.Includes)
 		debugf(out, "  vars:     %v", fileCfg.Vars)
 		debugf(out, "  tasks:    %v", fileCfg.Tasks)
