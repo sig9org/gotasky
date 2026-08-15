@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sig9org/gotasky/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 func TestSortEntries_AlphabeticalNoPinned(t *testing.T) {
@@ -187,7 +188,7 @@ func TestBuild_TemplatesDirsIsASearchPath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(override, "version"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(override, "version", "default.txt"), []byte("overridden: true"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(override, "version", "default.txt"), []byte("version: overridden"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -196,7 +197,7 @@ func TestBuild_TemplatesDirsIsASearchPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if !strings.Contains(content, "overridden: true") {
+	if !strings.Contains(content, "version: overridden") {
 		t.Errorf("expected the first directory's default.txt to win, got:\n%s", content)
 	}
 }
@@ -543,6 +544,90 @@ func TestBuild_SkipsUnconfiguredRootSchemaProperties(t *testing.T) {
 	}
 	if got, want := content, "version: '3'\n"; got != want {
 		t.Fatalf("Build() = %q, want %q", got, want)
+	}
+}
+
+func TestBuild_MergesEveryDuplicateRootProperty(t *testing.T) {
+	root := t.TempDir()
+	fixtures := map[string][2]string{
+		"version":  {"version: '3'\n", "version: '3.1'\n"},
+		"dotenv":   {"dotenv: [.env]\n", "dotenv: [project.ini]\n"},
+		"env":      {"env:\n  FIRST: one\n", "env:\n  SECOND: two\n"},
+		"includes": {"includes:\n  first: ./first.yml\n", "includes:\n  second: ./second.yml\n"},
+		"interval": {"interval: 100ms\n", "interval: 1s\n"},
+		"method":   {"method: checksum\n", "method: timestamp\n"},
+		"output":   {"output:\n  group:\n    begin: begin\n", "output:\n  group:\n    end: end\n"},
+		"run":      {"run: always\n", "run: once\n"},
+		"set":      {"set: [errexit]\n", "set: [pipefail]\n"},
+		"shopt":    {"shopt: [globstar]\n", "shopt: [nullglob]\n"},
+		"silent":   {"silent: true\n", "silent: false\n"},
+		"vars":     {"vars:\n  FIRST: one\n", "vars:\n  SECOND: two\n"},
+		"tasks":    {"tasks:\n  default: echo default\n", "tasks:\n  build: echo build\n"},
+	}
+	for category, contents := range fixtures {
+		categoryDir := filepath.Join(root, category)
+		if err := os.MkdirAll(categoryDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for i, content := range contents {
+			name := []string{"first.yml", "second.yml"}[i]
+			if err := os.WriteFile(filepath.Join(categoryDir, name), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	both := []string{"first.yml", "second.yml"}
+	content, err := New([]string{root}).Build(config.File{
+		Version: both, Dotenv: both, Env: both, Includes: both, Interval: both,
+		Method: both, Output: both, Run: both, Set: both, Shopt: both,
+		Silent: both, Vars: both, Tasks: both,
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if err := ValidateYAML(content); err != nil {
+		t.Fatalf("Build() produced duplicate or invalid YAML: %v\n%s", err, content)
+	}
+
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(content), &document); err != nil {
+		t.Fatal(err)
+	}
+	rootMapping := document.Content[0]
+	if got, want := len(rootMapping.Content)/2, len(rootCategories); got != want {
+		t.Fatalf("top-level property count = %d, want %d:\n%s", got, want, content)
+	}
+	for _, category := range rootCategories {
+		count := 0
+		for i := 0; i+1 < len(rootMapping.Content); i += 2 {
+			if rootMapping.Content[i].Value == category {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("top-level property %q appears %d times, want once", category, count)
+		}
+	}
+
+	var decoded map[string]any
+	if err := yaml.Unmarshal([]byte(content), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if got := decoded["version"]; got != "3.1" {
+		t.Errorf("version = %#v, want last value 3.1", got)
+	}
+	if got := decoded["silent"]; got != false {
+		t.Errorf("silent = %#v, want last value false", got)
+	}
+	for _, category := range []string{"dotenv", "set", "shopt"} {
+		if got := len(decoded[category].([]any)); got != 2 {
+			t.Errorf("%s length = %d, want 2", category, got)
+		}
+	}
+	output := decoded["output"].(map[string]any)["group"].(map[string]any)
+	if output["begin"] != "begin" || output["end"] != "end" {
+		t.Errorf("output.group = %#v, want merged begin/end", output)
 	}
 }
 

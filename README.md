@@ -63,6 +63,9 @@ See [`config.yml.example`](config.yml.example) for a working example using this 
 
 For every generated file, gotasky guarantees:
 
+- Every Root Schema property appears at most once at the top level. Sequence
+  properties (`dotenv`, `set`, `shopt`) are concatenated, mapping properties
+  are merged, and later scalar values override earlier inherited defaults.
 - **`includes:`** entries are sorted alphabetically (case-insensitive).
 - **`vars:`** entries are sorted alphabetically (case-insensitive).
 - **`tasks:`** entries are sorted alphabetically, except the `default` task, which is always placed first.
@@ -106,6 +109,22 @@ files:
     presets: [common]
     tasks: [os-update.txt]
 ```
+
+A preset can also reference one or more other presets. Referenced presets are
+expanded first, in the listed order, followed by the referencing preset's own
+snippets:
+
+```yaml
+presets:
+  default:
+    version: [default.yml]
+    dotenv: [dotenv.yml]
+  project:
+    presets: [default]
+    dotenv: [project.yml]
+```
+
+Unknown preset references and circular references are configuration errors.
 
 A file can reference more than one preset (`presets: [common, extra]`); each preset's snippets are merged in, in the order listed, ahead of the file's own directly-listed snippets, per category. Referencing a preset name that isn't defined under `presets` is a config error. If the same preset is referenced more than once, or two referenced presets contain exactly the same elements, gotasky prints `[WARN]`, merges that content once, and continues successfully.
 
@@ -154,7 +173,7 @@ Usage of gotasky:
 
 `-silent` suppresses the `[OK]` lines gotasky normally prints to stdout; `[WARN]`/`[NG]`/`[ERROR]` failures are always reported on stderr regardless, and the exit code is unaffected. If `-debug` is also given, `-debug` wins: silent is ignored and normal (`[DEBUG]` and `[OK]`) output is printed.
 
-For a file that references one or more [presets](#reusing-snippet-lists-with-presets), `-debug` also names the referenced presets and their Root Schema category contributions — not just the file's final, already-merged list.
+For each file, `-debug` prints all 14 supported elements (`presets` plus the 13 Root Schema categories), including empty lists. When presets are referenced, it also prints all 14 elements for each resolved preset — not just the file's final, already-merged list.
 
 ### Configuring paths
 

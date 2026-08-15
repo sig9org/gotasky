@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -39,6 +40,7 @@ type File struct {
 // File can pull in via its own Presets field, so common combinations don't
 // need to be repeated across every file that uses them.
 type Preset struct {
+	Presets  []string `yaml:"presets"`
 	Version  []string `yaml:"version"`
 	Output   []string `yaml:"output"`
 	Method   []string `yaml:"method"`
@@ -128,13 +130,58 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// resolvePresets expands each file's Presets references into its per-category
-// snippet lists: for every preset name in File.Presets, in order, that preset's
-// snippets are prepended ahead of the file's own directly-listed snippets
-// (so a file can layer its own additions on top of shared boilerplate).
-// Referencing more than one preset is allowed; an unknown preset name is an
-// error, since a config file cannot generate what it can't find.
+// resolvePresets first expands presets that reference other presets, then
+// expands each file's Presets references. Referenced content is prepended in
+// declaration order, followed by the referencing preset/file's own snippets.
+// Unknown references and cycles are configuration errors.
 func resolvePresets(cfg *Config) error {
+	states := make(map[string]uint8, len(cfg.Presets)) // 1 = visiting, 2 = resolved
+	var stack []string
+	var resolve func(string) (Preset, error)
+	resolve = func(name string) (Preset, error) {
+		preset, ok := cfg.Presets[name]
+		if !ok {
+			return Preset{}, fmt.Errorf("unknown preset %q", name)
+		}
+		switch states[name] {
+		case 2:
+			return preset, nil
+		case 1:
+			cycleStart := slices.Index(stack, name)
+			cycle := append(append([]string(nil), stack[cycleStart:]...), name)
+			return Preset{}, fmt.Errorf("preset reference cycle: %s", strings.Join(cycle, " -> "))
+		}
+
+		states[name] = 1
+		stack = append(stack, name)
+		var merged Preset
+		for _, referencedName := range preset.Presets {
+			referenced, err := resolve(referencedName)
+			if err != nil {
+				return Preset{}, fmt.Errorf("preset %q references %w", name, err)
+			}
+			appendPreset(&merged, referenced)
+		}
+		appendPreset(&merged, preset)
+		merged.Presets = append([]string(nil), preset.Presets...)
+
+		stack = stack[:len(stack)-1]
+		states[name] = 2
+		cfg.Presets[name] = merged
+		return merged, nil
+	}
+
+	presetNames := make([]string, 0, len(cfg.Presets))
+	for name := range cfg.Presets {
+		presetNames = append(presetNames, name)
+	}
+	sort.Strings(presetNames)
+	for _, name := range presetNames {
+		if _, err := resolve(name); err != nil {
+			return err
+		}
+	}
+
 	for name, f := range cfg.Files {
 		if len(f.Presets) == 0 {
 			continue
@@ -240,6 +287,41 @@ func (f File) TemplateNames(category string) []string {
 		return f.Set
 	case "shopt":
 		return f.Shopt
+	default:
+		return nil
+	}
+}
+
+// TemplateNames returns the snippet filenames configured on a preset for a
+// Taskfile root schema property.
+func (p Preset) TemplateNames(category string) []string {
+	switch strings.ToLower(category) {
+	case "version":
+		return p.Version
+	case "output":
+		return p.Output
+	case "method":
+		return p.Method
+	case "includes":
+		return p.Includes
+	case "vars":
+		return p.Vars
+	case "env":
+		return p.Env
+	case "tasks":
+		return p.Tasks
+	case "silent":
+		return p.Silent
+	case "dotenv":
+		return p.Dotenv
+	case "run":
+		return p.Run
+	case "interval":
+		return p.Interval
+	case "set":
+		return p.Set
+	case "shopt":
+		return p.Shopt
 	default:
 		return nil
 	}

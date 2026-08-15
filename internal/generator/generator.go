@@ -159,19 +159,113 @@ func (g *Generator) Build(cfg config.File) (string, error) {
 			continue
 		}
 
-		// Scalar/list/object root-property snippets are complete YAML fragments
-		// (for example "version: '3'" or "dotenv:\n  - .env"). Keeping
-		// them intact supports every shape allowed by the Taskfile schema.
+		// Scalar/list/object root-property snippets are complete YAML fragments.
+		// Merge them into one top-level property so multiple snippets can never
+		// emit duplicate root keys.
 		blocks, err := g.renderAll(category, cfg.TemplateNames(category))
 		if err != nil {
 			return "", err
 		}
-		if block := strings.Join(blocks, "\n\n"); block != "" {
+		block, err := mergeRootFragments(category, blocks)
+		if err != nil {
+			return "", err
+		}
+		if block != "" {
 			out = append(out, block)
 		}
 	}
 
 	return strings.Join(out, "\n\n") + "\n", nil
+}
+
+// mergeRootFragments combines complete YAML fragments for one root property.
+// Sequences are concatenated, mappings are recursively merged, and scalar
+// values use the last configured value (allowing a referencing preset or file
+// to override an inherited default).
+func mergeRootFragments(category string, blocks []string) (string, error) {
+	var merged *yaml.Node
+	var keyNode *yaml.Node
+	for _, block := range blocks {
+		var document yaml.Node
+		if err := yaml.Unmarshal([]byte(block), &document); err != nil {
+			return "", fmt.Errorf("parse template for %s: %w", category, err)
+		}
+		if len(document.Content) == 0 || document.Content[0].Kind != yaml.MappingNode {
+			return "", fmt.Errorf("template for %s must contain a top-level %q property", category, category)
+		}
+		mapping := document.Content[0]
+		var value *yaml.Node
+		for i := 0; i+1 < len(mapping.Content); i += 2 {
+			if mapping.Content[i].Value == category {
+				keyNode = cloneYAMLNode(mapping.Content[i])
+				value = mapping.Content[i+1]
+				break
+			}
+		}
+		if value == nil {
+			return "", fmt.Errorf("template for %s does not define top-level property %q", category, category)
+		}
+		merged = mergeYAMLNodes(merged, value)
+	}
+	if merged == nil {
+		return "", nil
+	}
+
+	document := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{
+		Kind: yaml.MappingNode,
+		Content: []*yaml.Node{
+			keyNode,
+			merged,
+		},
+	}}}
+	data, err := yaml.Marshal(document)
+	if err != nil {
+		return "", fmt.Errorf("render merged %s property: %w", category, err)
+	}
+	return strings.TrimRight(string(data), "\n"), nil
+}
+
+func mergeYAMLNodes(current, incoming *yaml.Node) *yaml.Node {
+	if current == nil || current.Kind != incoming.Kind {
+		return cloneYAMLNode(incoming)
+	}
+	switch incoming.Kind {
+	case yaml.SequenceNode:
+		for _, item := range incoming.Content {
+			current.Content = append(current.Content, cloneYAMLNode(item))
+		}
+		return current
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(incoming.Content); i += 2 {
+			incomingKey, incomingValue := incoming.Content[i], incoming.Content[i+1]
+			found := false
+			for j := 0; j+1 < len(current.Content); j += 2 {
+				if current.Content[j].Value == incomingKey.Value {
+					current.Content[j+1] = mergeYAMLNodes(current.Content[j+1], incomingValue)
+					found = true
+					break
+				}
+			}
+			if !found {
+				current.Content = append(current.Content, cloneYAMLNode(incomingKey), cloneYAMLNode(incomingValue))
+			}
+		}
+		return current
+	default:
+		return cloneYAMLNode(incoming)
+	}
+}
+
+func cloneYAMLNode(node *yaml.Node) *yaml.Node {
+	if node == nil {
+		return nil
+	}
+	clone := *node
+	clone.Content = make([]*yaml.Node, len(node.Content))
+	for i, child := range node.Content {
+		clone.Content[i] = cloneYAMLNode(child)
+	}
+	return &clone
 }
 
 func isSectionCategory(category string) bool {

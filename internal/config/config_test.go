@@ -182,6 +182,78 @@ files:
 	}
 }
 
+func TestLoad_ResolvesNestedPresets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	content := `
+presets:
+  default:
+    version: [default.yml]
+    dotenv: [dotenv.yml]
+    silent: [silent.yml]
+    vars: [cleanup.yml, time.yml]
+    tasks: [default.yml, cleanup.yml, notify.yml, time.yml]
+  project:
+    presets: [default]
+    dotenv: [project.yml]
+  application:
+    presets: [project]
+    vars: [application.yml]
+files:
+  app:
+    path: Taskfile.yml
+    presets: [application]
+    tasks: [build.yml]
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	f := cfg.Files["app"]
+	if got, want := f.Version, []string{"default.yml"}; !equalSlices(got, want) {
+		t.Errorf("Version = %v, want %v", got, want)
+	}
+	if got, want := f.Dotenv, []string{"dotenv.yml", "project.yml"}; !equalSlices(got, want) {
+		t.Errorf("Dotenv = %v, want %v", got, want)
+	}
+	if got, want := f.Vars, []string{"cleanup.yml", "time.yml", "application.yml"}; !equalSlices(got, want) {
+		t.Errorf("Vars = %v, want %v", got, want)
+	}
+	if got, want := f.Tasks, []string{"default.yml", "cleanup.yml", "notify.yml", "time.yml", "build.yml"}; !equalSlices(got, want) {
+		t.Errorf("Tasks = %v, want %v", got, want)
+	}
+	if got, want := cfg.Presets["project"].Dotenv, []string{"dotenv.yml", "project.yml"}; !equalSlices(got, want) {
+		t.Errorf("resolved project Dotenv = %v, want %v", got, want)
+	}
+}
+
+func TestLoad_NestedPresetUnknownReferenceReturnsError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	content := "presets:\n  project:\n    presets: [missing]\nfiles: {}\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), `preset "project" references unknown preset "missing"`) {
+		t.Fatalf("Load() error = %v, want nested unknown-preset error", err)
+	}
+}
+
+func TestLoad_PresetReferenceCycleReturnsError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	content := "presets:\n  first:\n    presets: [second]\n  second:\n    presets: [third]\n  third:\n    presets: [first]\nfiles: {}\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "preset reference cycle: first -> second -> third -> first") {
+		t.Fatalf("Load() error = %v, want preset-cycle error", err)
+	}
+}
+
 func TestLoad_UnknownPresetReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.yml")
