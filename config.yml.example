@@ -9,27 +9,22 @@
 # fails up front rather than silently picking one. If "templates" is
 # omitted entirely, gotasky falls back to ./templates.
 templates:
-  - templates/public
-  - templates/private
+  - templates
 ignore:
   - .DS_Store
   - .gitkeep
-sets:
+presets:
   default:
-    headers:
+    version:
       - default.yml
+    silent:
+      - silent.yml
     tasks:
-      - greeting.yml
+      - default.yml
 files:
   hello:
-    path: "taskfiles/public/hello/Taskfile.yml"
-    headers:
-      - default.yml
+    path: "example/Taskfile.yml"
+    presets:
+      - default
     tasks:
-      - default.yml
       - hello.yml
-  include:
-    path: "taskfiles/private/include/Taskfile.yml"
-    sets: [default]
-    includes:
-      - default.yml

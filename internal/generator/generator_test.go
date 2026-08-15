@@ -57,7 +57,7 @@ func TestSortEntries_PinnedNameAbsentIsNoop(t *testing.T) {
 func TestBuild_ProducesValidSortedYAML(t *testing.T) {
 	g := New([]string{filepath.Join("testdata", "templates")})
 	fileCfg := config.File{
-		Headers:  []string{"default.txt"},
+		Version:  []string{"default.txt"},
 		Includes: []string{"sample.txt"},
 		Vars:     []string{"sample.txt"},
 		Tasks:    []string{"sample.txt"},
@@ -110,7 +110,7 @@ func TestBuild_ProducesValidSortedYAML(t *testing.T) {
 func TestBuild_StripsDuplicateCategoryWrapperKey(t *testing.T) {
 	g := New([]string{filepath.Join("testdata", "templates")})
 	fileCfg := config.File{
-		Headers: []string{"default.txt"},
+		Version: []string{"default.txt"},
 		Tasks:   []string{"wrapped-a.txt", "wrapped-b.txt"},
 	}
 
@@ -135,7 +135,7 @@ func TestBuild_StripsDuplicateCategoryWrapperKey(t *testing.T) {
 func TestBuild_TaskSnippetCanDeclareOwnVars(t *testing.T) {
 	g := New([]string{filepath.Join("testdata", "templates")})
 	fileCfg := config.File{
-		Headers: []string{"default.txt"},
+		Version: []string{"default.txt"},
 		Tasks:   []string{"with-vars.txt"},
 	}
 
@@ -164,7 +164,7 @@ func TestBuild_TaskSnippetCanDeclareOwnVars(t *testing.T) {
 
 func TestBuild_MissingTemplateReturnsError(t *testing.T) {
 	g := New([]string{filepath.Join("testdata", "templates")})
-	_, err := g.Build(config.File{Headers: []string{"missing.txt"}})
+	_, err := g.Build(config.File{Version: []string{"missing.txt"}})
 	if err == nil {
 		t.Fatal("expected error for missing template, got nil")
 	}
@@ -175,7 +175,7 @@ func TestBuild_MissingTemplateReturnsError(t *testing.T) {
 // one contains a snippet of the same name.
 func TestBuild_TemplatesDirsIsASearchPath(t *testing.T) {
 	g := New([]string{t.TempDir(), filepath.Join("testdata", "templates")})
-	content, err := g.Build(config.File{Headers: []string{"default.txt"}})
+	content, err := g.Build(config.File{Version: []string{"default.txt"}})
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
@@ -184,15 +184,15 @@ func TestBuild_TemplatesDirsIsASearchPath(t *testing.T) {
 	}
 
 	override := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(override, "headers"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(override, "version"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(override, "headers", "default.txt"), []byte("overridden: true"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(override, "version", "default.txt"), []byte("overridden: true"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	g = New([]string{override, filepath.Join("testdata", "templates")})
-	content, err = g.Build(config.File{Headers: []string{"default.txt"}})
+	content, err = g.Build(config.File{Version: []string{"default.txt"}})
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
@@ -202,24 +202,24 @@ func TestBuild_TemplatesDirsIsASearchPath(t *testing.T) {
 }
 
 // A filename present in more than one templates directory, for any of the
-// four snippet categories, must fail generation up front rather than being
+// supported Root Schema categories, must fail generation up front rather than being
 // silently resolved by "first directory wins" — regardless of whether any
 // config.File actually references that filename.
 func TestGenerateAll_FailsOnDuplicateTemplateFilenameAcrossDirs(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 	for _, dir := range []string{dirA, dirB} {
-		if err := os.MkdirAll(filepath.Join(dir, "headers"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(dir, "version"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "headers", "default.txt"), []byte("version: '3'\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "version", "default.txt"), []byte("version: '3'\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	cfg := &config.Config{
 		Files: map[string]config.File{
-			"default": {Path: "Taskfile.yml", Headers: []string{"default.txt"}},
+			"default": {Path: "Taskfile.yml", Version: []string{"default.txt"}},
 		},
 	}
 
@@ -231,7 +231,7 @@ func TestGenerateAll_FailsOnDuplicateTemplateFilenameAcrossDirs(t *testing.T) {
 	if results != nil {
 		t.Errorf("expected no results when template dirs have duplicate filenames, got: %+v", results)
 	}
-	if !strings.Contains(err.Error(), "headers/default.txt") {
+	if !strings.Contains(err.Error(), "version/default.txt") {
 		t.Errorf("expected error to name the duplicated file, got: %v", err)
 	}
 
@@ -249,21 +249,21 @@ func TestGenerateAll_IgnoresListedFilenamesInDuplicateCheck(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 	for _, dir := range []string{dirA, dirB} {
-		if err := os.MkdirAll(filepath.Join(dir, "headers"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(dir, "version"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "headers", ".DS_Store"), []byte("junk"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "version", ".DS_Store"), []byte("junk"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dirA, "headers", "default.txt"), []byte("version: '3'\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dirA, "version", "default.txt"), []byte("version: '3'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	cfg := &config.Config{
 		Ignore: []string{".DS_Store"},
 		Files: map[string]config.File{
-			"default": {Path: "Taskfile.yml", Headers: []string{"default.txt"}},
+			"default": {Path: "Taskfile.yml", Version: []string{"default.txt"}},
 		},
 	}
 
@@ -288,16 +288,16 @@ func TestGenerateAll_FailsOnDuplicateEvenWhenUnreferenced(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.MkdirAll(filepath.Join(dirA, "headers"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dirA, "version"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dirA, "headers", "default.txt"), []byte("version: '3'\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dirA, "version", "default.txt"), []byte("version: '3'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	cfg := &config.Config{
 		Files: map[string]config.File{
-			"default": {Path: "Taskfile.yml", Headers: []string{"default.txt"}},
+			"default": {Path: "Taskfile.yml", Version: []string{"default.txt"}},
 		},
 	}
 
@@ -329,7 +329,7 @@ func TestGenerateAll_WritesAndValidatesFiles(t *testing.T) {
 		Files: map[string]config.File{
 			"default": {
 				Path:    "Taskfile.yml",
-				Headers: []string{"default.txt"},
+				Version: []string{"default.txt"},
 				Vars:    []string{"sample.txt"},
 				Tasks:   []string{"sample.txt"},
 			},
@@ -359,7 +359,7 @@ func TestGenerateAll_DryRunDoesNotWriteFiles(t *testing.T) {
 		Files: map[string]config.File{
 			"default": {
 				Path:    "Taskfile.yml",
-				Headers: []string{"default.txt"},
+				Version: []string{"default.txt"},
 				Vars:    []string{"sample.txt"},
 				Tasks:   []string{"sample.txt"},
 			},
@@ -385,7 +385,7 @@ func TestGenerateAll_DryRunReportsFailureForBadFile(t *testing.T) {
 		Files: map[string]config.File{
 			"broken": {
 				Path:    "Taskfile.yml",
-				Headers: []string{"missing.txt"},
+				Version: []string{"missing.txt"},
 			},
 		},
 	}
@@ -405,7 +405,7 @@ func TestGenerateAll_ReportsFailureForBadFile(t *testing.T) {
 		Files: map[string]config.File{
 			"broken": {
 				Path:    "Taskfile.yml",
-				Headers: []string{"missing.txt"},
+				Version: []string{"missing.txt"},
 			},
 		},
 	}
@@ -428,11 +428,11 @@ func TestGenerateAll_WarnsOnDuplicateOutputPath(t *testing.T) {
 		Files: map[string]config.File{
 			"a-first": {
 				Path:    "Taskfile.yml",
-				Headers: []string{"default.txt"},
+				Version: []string{"default.txt"},
 			},
 			"b-second": {
 				Path:    "Taskfile.yml",
-				Headers: []string{"default.txt"},
+				Version: []string{"default.txt"},
 			},
 		},
 	}
@@ -458,8 +458,8 @@ func TestGenerateAll_NoWarningForDistinctPaths(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{
 		Files: map[string]config.File{
-			"a": {Path: "a.yml", Headers: []string{"default.txt"}},
-			"b": {Path: "b.yml", Headers: []string{"default.txt"}},
+			"a": {Path: "a.yml", Version: []string{"default.txt"}},
+			"b": {Path: "b.yml", Version: []string{"default.txt"}},
 		},
 	}
 
@@ -471,5 +471,97 @@ func TestGenerateAll_NoWarningForDistinctPaths(t *testing.T) {
 		if result.Warning != "" {
 			t.Errorf("unexpected warning for %q: %q", result.Name, result.Warning)
 		}
+	}
+}
+
+func TestBuild_AllTaskfileRootSchemaDirectories(t *testing.T) {
+	root := t.TempDir()
+	fixtures := map[string]string{
+		"version/v3.yml":      "version: '3'\n",
+		"output/group.yml":    "output: group\n",
+		"method/checksum.yml": "method: checksum\n",
+		"includes/common.yml": "  common: ./common.yml\n",
+		"vars/app.yml":        "  APP: gotasky\n",
+		"env/ci.yml":          "  CI: true\n",
+		"tasks/default.yml":   "  default: echo ok\n",
+		"silent/true.yml":     "silent: true\n",
+		"dotenv/default.yml":  "dotenv: [.env]\n",
+		"run/once.yml":        "run: once\n",
+		"interval/watch.yml":  "interval: 1s\n",
+		"set/safe.yml":        "set: [errexit, pipefail]\n",
+		"shopt/globstar.yml":  "shopt: [globstar]\n",
+	}
+	for name, content := range fixtures {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	g := New([]string{root, filepath.Join(root, "does-not-exist")})
+	content, err := g.Build(config.File{
+		Version: []string{"v3.yml"}, Output: []string{"group.yml"}, Method: []string{"checksum.yml"},
+		Includes: []string{"common.yml"}, Vars: []string{"app.yml"}, Env: []string{"ci.yml"}, Tasks: []string{"default.yml"},
+		Silent: []string{"true.yml"}, Dotenv: []string{"default.yml"}, Run: []string{"once.yml"},
+		Interval: []string{"watch.yml"}, Set: []string{"safe.yml"}, Shopt: []string{"globstar.yml"},
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if err := ValidateYAML(content); err != nil {
+		t.Fatalf("Build() produced invalid YAML: %v\n%s", err, content)
+	}
+	for _, key := range rootCategories {
+		if !strings.Contains(content, key+":") {
+			t.Errorf("generated Taskfile does not contain root property %q:\n%s", key, content)
+		}
+	}
+	previous := -1
+	for _, key := range rootCategories {
+		index := -1
+		for offset, line := range strings.Split(content, "\n") {
+			if strings.HasPrefix(line, key+":") {
+				index = offset
+				break
+			}
+		}
+		if index <= previous {
+			t.Fatalf("root property %q is out of order:\n%s", key, content)
+		}
+		previous = index
+	}
+}
+
+func TestBuild_SkipsUnconfiguredRootSchemaProperties(t *testing.T) {
+	g := New([]string{filepath.Join("testdata", "templates")})
+	content, err := g.Build(config.File{Version: []string{"default.txt"}})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if got, want := content, "version: '3'\n"; got != want {
+		t.Fatalf("Build() = %q, want %q", got, want)
+	}
+}
+
+func TestCheckNoDuplicateTemplatesScansEveryRootSchemaDirectory(t *testing.T) {
+	for _, category := range rootCategories {
+		t.Run(category, func(t *testing.T) {
+			first, second := t.TempDir(), t.TempDir()
+			for _, dir := range []string{first, second} {
+				categoryDir := filepath.Join(dir, category)
+				if err := os.MkdirAll(categoryDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(categoryDir, "duplicate.yml"), []byte("value\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := checkNoDuplicateTemplates([]string{first, filepath.Join(first, "missing"), second}, nil); err == nil {
+				t.Fatalf("expected duplicate in %s directory to be detected", category)
+			}
+		})
 	}
 }

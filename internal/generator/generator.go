@@ -1,5 +1,5 @@
-// Package generator combines template snippets (headers, includes, vars,
-// tasks) into a complete Taskfile.yml, sorting includes, vars, and tasks and
+// Package generator combines Taskfile Root Schema template snippets into a
+// complete Taskfile.yml, sorting map entries and
 // validating the result as YAML.
 package generator
 
@@ -22,15 +22,21 @@ import (
 // (e.g. "  build:").
 var entryPattern = regexp.MustCompile(`^ {2}\S[^:\n]*:`)
 
-// sectionCategories are the top-level Taskfile keys a template snippet may
+// sectionCategories are map-valued top-level Taskfile keys a template snippet may
 // declare for itself, in addition to the category folder it's read from —
 // e.g. a task definition under templates/tasks/ that also needs its own
 // "vars:" entry.
-var sectionCategories = []string{"vars", "tasks", "includes"}
+var sectionCategories = []string{"includes", "vars", "env", "tasks"}
 
-// templateCategories are every snippet folder gotasky reads from under a
-// templates directory.
-var templateCategories = []string{"headers", "includes", "vars", "tasks"}
+// rootCategories defines both the generated Taskfile property order and the
+// directory names scanned below each configured templates directory.
+var rootCategories = []string{
+	"version", "dotenv", "env", "includes", "interval", "method", "output",
+	"run", "set", "shopt", "silent", "vars", "tasks",
+}
+
+// templateCategories contains every supported Taskfile Root Schema directory.
+var templateCategories = rootCategories
 
 // Generator renders Taskfile bodies from template snippets under
 // TemplatesDirs, a search path of one or more directories: for a given
@@ -74,7 +80,7 @@ func (g *Generator) renderAll(category string, names []string) ([]string, error)
 
 // collectSections reads every named template under category and splits each
 // snippet's content into per-section chunks (see splitSections), merging the
-// results into dest, keyed by section name ("vars", "tasks", or "includes").
+// results into dest, keyed by section name ("includes", "vars", "env", or "tasks").
 func (g *Generator) collectSections(category string, names []string, dest map[string][]string) error {
 	for _, name := range names {
 		content, err := g.readTemplate(category, name)
@@ -89,7 +95,7 @@ func (g *Generator) collectSections(category string, names []string, dest map[st
 }
 
 // splitSections splits a template snippet into per-section chunks. A line
-// that is exactly "vars:", "tasks:", or "includes:" at column 0 switches the
+// that is exactly "includes:", "vars:", "env:", or "tasks:" at column 0 switches the
 // current section; content before the first such line (or all of it, if
 // there is none) is attributed to defaultCategory, the folder the snippet
 // was read from. This lets one snippet declare more than one top-level
@@ -129,40 +135,52 @@ func isSectionMarker(line string) bool {
 
 // Build renders the full Taskfile.yml body described by cfg.
 func (g *Generator) Build(cfg config.File) (string, error) {
-	headers, err := g.renderAll("headers", cfg.Headers)
-	if err != nil {
-		return "", err
-	}
-
 	sections := map[string][]string{}
-	if err := g.collectSections("includes", cfg.Includes, sections); err != nil {
-		return "", err
-	}
-	if err := g.collectSections("vars", cfg.Vars, sections); err != nil {
-		return "", err
-	}
-	if err := g.collectSections("tasks", cfg.Tasks, sections); err != nil {
-		return "", err
+	for _, category := range sectionCategories {
+		if err := g.collectSections(category, cfg.TemplateNames(category), sections); err != nil {
+			return "", err
+		}
 	}
 
-	out := []string{strings.Join(headers, "\n\n")}
+	var out []string
+	for _, category := range rootCategories {
+		if isSectionCategory(category) {
+			blocks := sections[category]
+			if len(blocks) == 0 {
+				continue
+			}
+			separator := "\n"
+			var pinned []string
+			if category == "tasks" {
+				separator = "\n\n"
+				pinned = []string{"default"}
+			}
+			out = append(out, category+":\n"+sortEntries(strings.Join(blocks, "\n\n"), separator, pinned))
+			continue
+		}
 
-	if blocks := sections["includes"]; len(blocks) > 0 {
-		sorted := sortEntries(strings.Join(blocks, "\n\n"), "\n", nil)
-		out = append(out, "includes:\n"+sorted)
-	}
-
-	if blocks := sections["vars"]; len(blocks) > 0 {
-		sorted := sortEntries(strings.Join(blocks, "\n\n"), "\n", nil)
-		out = append(out, "vars:\n"+sorted)
-	}
-
-	if blocks := sections["tasks"]; len(blocks) > 0 {
-		sorted := sortEntries(strings.Join(blocks, "\n\n"), "\n\n", []string{"default"})
-		out = append(out, "tasks:\n"+sorted)
+		// Scalar/list/object root-property snippets are complete YAML fragments
+		// (for example "version: '3'" or "dotenv:\n  - .env"). Keeping
+		// them intact supports every shape allowed by the Taskfile schema.
+		blocks, err := g.renderAll(category, cfg.TemplateNames(category))
+		if err != nil {
+			return "", err
+		}
+		if block := strings.Join(blocks, "\n\n"); block != "" {
+			out = append(out, block)
+		}
 	}
 
 	return strings.Join(out, "\n\n") + "\n", nil
+}
+
+func isSectionCategory(category string) bool {
+	for _, candidate := range sectionCategories {
+		if category == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 // sortEntries splits text into top-level entry blocks (each starting at a
@@ -222,7 +240,7 @@ func entryKey(block []string) string {
 }
 
 // checkNoDuplicateTemplates reports an error if any template category
-// folder (headers, includes, vars, tasks) has the same filename present in
+// folder (all Root Schema properties) has the same filename present in
 // more than one of templatesDirs. TemplatesDirs is meant to be a search
 // path for filling in snippets *missing* from one directory (e.g. a
 // project-specific directory layered on a shared one), not a place to
@@ -307,13 +325,13 @@ func ValidateYAML(content string) error {
 type Result struct {
 	Name    string
 	Path    string
-	Warning string // non-empty if another file in the same run also writes Path
+	Warning string // non-empty for non-fatal configuration concerns
 	Error   error
 }
 
 // GenerateAll renders every file described by cfg, under rootDir, validating
 // each as YAML. It first checks templatesDirs for any template category
-// (headers, includes, vars, tasks) that has the same filename in more than
+// (all Root Schema properties) that has the same filename in more than
 // one directory, returning a nil result slice and an error immediately if
 // so — see checkNoDuplicateTemplates. Filenames listed in cfg.Ignore are
 // excluded from that check, as if they didn't exist. When dryRun is true,
@@ -343,9 +361,16 @@ func GenerateAll(cfg *config.Config, templatesDirs []string, rootDir string, dry
 	for _, name := range names {
 		fileCfg := cfg.Files[name]
 		result := Result{Name: name, Path: fileCfg.Path}
+		if len(fileCfg.Warnings) > 0 {
+			result.Warning = strings.Join(fileCfg.Warnings, "; ")
+		}
 
 		if firstName, dup := seenPaths[fileCfg.Path]; dup {
-			result.Warning = fmt.Sprintf("output path %q is also written by %q in this run; one will overwrite the other", fileCfg.Path, firstName)
+			pathWarning := fmt.Sprintf("output path %q is also written by %q in this run; one will overwrite the other", fileCfg.Path, firstName)
+			if result.Warning != "" {
+				result.Warning += "; "
+			}
+			result.Warning += pathWarning
 		} else {
 			seenPaths[fileCfg.Path] = name
 		}

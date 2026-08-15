@@ -15,15 +15,18 @@ If you maintain several projects with `go-task`, you tend to reuse the same hand
 
 ## How it works
 
-1. You keep template snippets under a `templates/` directory, grouped into four categories:
-   - `templates/headers/*.txt` — the top of the file (`version`, `silent`, `dotenv`, ...)
-   - `templates/includes/*.txt` — entries for the `includes:` section
-   - `templates/vars/*.txt` — entries for the `vars:` section
-   - `templates/tasks/*.txt` — entries for the `tasks:` section
+1. You keep template snippets under a `templates/` directory, grouped by every
+   [Taskfile Root Schema](https://taskfile.dev/docs/reference/schema#root-schema)
+   property: `version`, `output`, `method`, `includes`, `vars`, `env`, `tasks`,
+   `silent`, `dotenv`, `run`, `interval`, `set`, and `shopt`. Missing category
+   directories are skipped.
 2. You write a config file (`config.yml` by default) listing one or more output files, each naming which snippets to combine:
 
+   The supported category keys are the 13 Root Schema properties above plus
+   gotasky's `presets`, for 14 keys in total.
+
    ```yaml
-   sets:
+   presets:
      common:
        vars:
          - cleanup.txt
@@ -35,8 +38,8 @@ If you maintain several projects with `go-task`, you tend to reuse the same hand
    files:
      os-update:
        path: "taskfiles/os-update/Taskfile.yml"
-       sets: [common]
-       headers:
+       presets: [common]
+       version:
          - default.txt
        includes:
          - common.txt
@@ -47,8 +50,8 @@ If you maintain several projects with `go-task`, you tend to reuse the same hand
 
      terraform:
        path: "taskfiles/terraform/Taskfile.yml"
-       sets: [common]
-       headers:
+       presets: [common]
+       version:
          - env.txt
        tasks:
          - terraform.txt
@@ -82,29 +85,31 @@ Every status/diagnostic line gotasky prints is colored consistently, whether or 
 | `[ERROR]` | red     | the whole run failed before any file was generated (e.g. an invalid config file, or [duplicate template filenames](#configuring-paths)) |
 | `[DEBUG]` | gray    | `-debug` diagnostics, each timestamped                                 |
 
-### Reusing snippet lists with sets
+### Reusing snippet lists with presets
 
-If several output files share the same handful of snippets (as `os-update` and `terraform` do above), you can factor them out once as a named **set**, via an optional top-level `sets` key, instead of repeating them in every file:
+If several output files share the same handful of snippets (as `os-update` and `terraform` do above), you can factor them out once as a named **preset**, via an optional top-level `presets` key, instead of repeating them in every file:
 
 ```yaml
-sets:
+presets:
   common:
-    headers: [default.txt]   # any of headers/includes/vars/tasks
+    version: [default.txt]   # any supported Root Schema category
     vars: [cleanup.txt]
     tasks: [default.txt, time.txt, cleanup.txt]
 ```
 
-Any file can then pull a set in via its own `sets` key:
+Any file can then pull a preset in via its own `presets` key:
 
 ```yaml
 files:
   os-update:
     path: "taskfiles/os-update/Taskfile.yml"
-    sets: [common]
+    presets: [common]
     tasks: [os-update.txt]
 ```
 
-A file can reference more than one set (`sets: [common, extra]`); each set's snippets are merged in, in the order listed, ahead of the file's own directly-listed snippets, per category. Referencing a set name that isn't defined under `sets` is a config error.
+A file can reference more than one preset (`presets: [common, extra]`); each preset's snippets are merged in, in the order listed, ahead of the file's own directly-listed snippets, per category. Referencing a preset name that isn't defined under `presets` is a config error. If the same preset is referenced more than once, or two referenced presets contain exactly the same elements, gotasky prints `[WARN]`, merges that content once, and continues successfully.
+
+The former `sets` key has been renamed to `presets` to distinguish it from the Taskfile Root Schema's singular `set` property. Using the old key returns an error with migration guidance instead of silently ignoring it.
 
 ## Sample generated Taskfiles
 
@@ -149,7 +154,7 @@ Usage of gotasky:
 
 `-silent` suppresses the `[OK]` lines gotasky normally prints to stdout; `[WARN]`/`[NG]`/`[ERROR]` failures are always reported on stderr regardless, and the exit code is unaffected. If `-debug` is also given, `-debug` wins: silent is ignored and normal (`[DEBUG]` and `[OK]`) output is printed.
 
-For a file that references one or more [sets](#reusing-snippet-lists-with-sets), `-debug` also names the referenced sets and, per set, exactly which headers/includes/vars/tasks that set contributed — not just the file's final, already-merged list.
+For a file that references one or more [presets](#reusing-snippet-lists-with-presets), `-debug` also names the referenced presets and their Root Schema category contributions — not just the file's final, already-merged list.
 
 ### Configuring paths
 
@@ -177,11 +182,11 @@ files:
 
 If `templates` is omitted, gotasky falls back to `./templates`.
 
-This search path is only for filling gaps, never for shadowing: if the same filename exists in more than one configured directory, for the same category (`headers`/`includes`/`vars`/`tasks`), that's a configuration mistake rather than a "first directory wins" case. Generation fails up front, before any file is built, with an `[ERROR]` naming every duplicate and the directories it was found in:
+This search path is only for filling gaps, never for shadowing: if the same filename exists in more than one configured directory for any supported Root Schema category, that's a configuration mistake rather than a "first directory wins" case. Generation fails up front, before any file is built, with an `[ERROR]` naming every duplicate and the directories it was found in:
 
 ```
 [ERROR]Duplicate template filenames across template directories:
-  headers/default.yml -> templates/shared, templates/project
+  version/default.yml -> templates/shared, templates/project
   tasks/cleanup.yml   -> templates/shared, templates/project
 ```
 

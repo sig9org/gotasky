@@ -26,7 +26,7 @@ func TestRun_VersionFlag(t *testing.T) {
 		if stdout.String() != want {
 			t.Errorf("%s: stdout = %q, want %q", opt, stdout.String(), want)
 		}
-		for _, part := range []string{"gotasky", "v1.2.3", "("} {
+		for _, part := range []string{"gotasky", "v1.2.3"} {
 			if !strings.Contains(stdout.String(), part) {
 				t.Errorf("%s: expected stdout to contain %q, got: %q", opt, part, stdout.String())
 			}
@@ -234,7 +234,7 @@ func TestRun_GenerateFailureIsColoredRed(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("files:\n  broken:\n    path: Taskfile.yml\n    headers: [missing.txt]\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("files:\n  broken:\n    path: Taskfile.yml\n    version: [missing.txt]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "templates"), 0o755); err != nil {
@@ -264,10 +264,10 @@ func TestRun_DuplicateOutputPathWarnsInOrange(t *testing.T) {
 	content := "files:\n" +
 		"  a-first:\n" +
 		"    path: Taskfile.yml\n" +
-		"    headers: [default.txt]\n" +
+		"    version: [default.txt]\n" +
 		"  b-second:\n" +
 		"    path: Taskfile.yml\n" +
-		"    headers: [default.txt]\n"
+		"    version: [default.txt]\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestRun_DryRunReportsFailure(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("files:\n  broken:\n    path: Taskfile.yml\n    headers: [missing.txt]\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("files:\n  broken:\n    path: Taskfile.yml\n    version: [missing.txt]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "templates"), 0o755); err != nil {
@@ -342,7 +342,7 @@ func TestRun_DebugFlagPrintsIgnoreList(t *testing.T) {
 		"files:\n" +
 		"  default:\n" +
 		"    path: Taskfile.yml\n" +
-		"    headers: [default.txt]\n" +
+		"    version: [default.txt]\n" +
 		"    vars: [sample.txt]\n" +
 		"    tasks: [sample.txt]\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
@@ -359,22 +359,22 @@ func TestRun_DebugFlagPrintsIgnoreList(t *testing.T) {
 	}
 }
 
-// -debug on a file that references a set must name the set and show what
-// that set individually contributed per category, not just the file's
+// -debug on a file that references a preset must name the preset and show what
+// that preset individually contributed per category, not just the file's
 // final merged lists.
-func TestRun_DebugFlagPrintsSetContributions(t *testing.T) {
+func TestRun_DebugFlagPrintsPresetContributions(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
 	writeTemplateFixtures(t, filepath.Join(dir, "templates"))
-	content := "sets:\n" +
+	content := "presets:\n" +
 		"  common:\n" +
-		"    headers: [default.txt]\n" +
+		"    version: [default.txt]\n" +
 		"    vars: [sample.txt]\n" +
 		"files:\n" +
 		"  default:\n" +
 		"    path: Taskfile.yml\n" +
-		"    sets: [common]\n" +
+		"    presets: [common]\n" +
 		"    tasks: [sample.txt]\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -386,11 +386,11 @@ func TestRun_DebugFlagPrintsSetContributions(t *testing.T) {
 		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "sets: [common]") {
-		t.Errorf("expected debug output to name the referenced set, got: %s", out)
+	if !strings.Contains(out, "presets: [common]") {
+		t.Errorf("expected debug output to name the referenced preset, got: %s", out)
 	}
-	if !strings.Contains(out, "common -> headers: [default.txt], includes: [], vars: [sample.txt], tasks: []") {
-		t.Errorf("expected debug output to show the set's own per-category contribution, got: %s", out)
+	if !strings.Contains(out, "common -> version: [default.txt], includes: [], vars: [sample.txt], tasks: []") {
+		t.Errorf("expected debug output to show the preset's own per-category contribution, got: %s", out)
 	}
 }
 
@@ -422,7 +422,7 @@ func TestRun_SilentFlagStillReportsFailureOnStderr(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("files:\n  broken:\n    path: Taskfile.yml\n    headers: [missing.txt]\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("files:\n  broken:\n    path: Taskfile.yml\n    version: [missing.txt]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "templates"), 0o755); err != nil {
@@ -474,7 +474,7 @@ func TestRun_GenerateHonorsTemplatesKeyOverride(t *testing.T) {
 	writeTemplateFixtures(t, templatesDir)
 
 	content := fmt.Sprintf(
-		"templates: [%q]\nfiles:\n  default:\n    path: %s\n    headers: [default.txt]\n    vars: [sample.txt]\n    tasks: [sample.txt]\n",
+		"templates: [%q]\nfiles:\n  default:\n    path: %s\n    version: [default.txt]\n    vars: [sample.txt]\n    tasks: [sample.txt]\n",
 		templatesDir, filepath.ToSlash(filepath.Join("out", "Taskfile.yml")),
 	)
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
@@ -504,7 +504,7 @@ func TestRun_GenerateHonorsMultipleTemplatesDirs(t *testing.T) {
 
 	// project-templates supplies a snippet under a name not present in
 	// shared-templates, so there's no filename overlap between the two
-	// dirs — only a genuinely missing category (headers, tasks) falls back
+	// dirs — only a genuinely missing category (version, tasks) falls back
 	// to shared-templates.
 	projectDir := filepath.Join(dir, "project-templates")
 	if err := os.MkdirAll(filepath.Join(projectDir, "vars"), 0o755); err != nil {
@@ -515,7 +515,7 @@ func TestRun_GenerateHonorsMultipleTemplatesDirs(t *testing.T) {
 	}
 
 	content := fmt.Sprintf(
-		"templates: [%q, %q]\nfiles:\n  default:\n    path: Taskfile.yml\n    headers: [default.txt]\n    vars: [only-here.txt]\n    tasks: [sample.txt]\n",
+		"templates: [%q, %q]\nfiles:\n  default:\n    path: Taskfile.yml\n    version: [default.txt]\n    vars: [only-here.txt]\n    tasks: [sample.txt]\n",
 		projectDir, sharedDir,
 	)
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
@@ -536,7 +536,7 @@ func TestRun_GenerateHonorsMultipleTemplatesDirs(t *testing.T) {
 		t.Errorf("expected project-templates' vars/only-here.txt to be used, got:\n%s", data)
 	}
 	if !strings.Contains(string(data), "version:") {
-		t.Errorf("expected headers/default.txt to fall back to shared-templates, got:\n%s", data)
+		t.Errorf("expected version/default.txt to fall back to shared-templates, got:\n%s", data)
 	}
 }
 
@@ -554,7 +554,7 @@ func TestRun_GenerateFailsOnDuplicateTemplateFilenameAcrossDirs(t *testing.T) {
 	writeTemplateFixtures(t, secondDir)
 
 	content := fmt.Sprintf(
-		"templates: [%q, %q]\nfiles:\n  default:\n    path: Taskfile.yml\n    headers: [default.txt]\n    vars: [sample.txt]\n    tasks: [sample.txt]\n",
+		"templates: [%q, %q]\nfiles:\n  default:\n    path: Taskfile.yml\n    version: [default.txt]\n    vars: [sample.txt]\n    tasks: [sample.txt]\n",
 		firstDir, secondDir,
 	)
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
@@ -600,12 +600,33 @@ func TestRun_UpdateOnNonReleaseBuildFailsCleanly(t *testing.T) {
 	}
 }
 
+func TestRun_IdenticalPresetsPrintWarningWithoutFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeTemplateFixtures(t, filepath.Join(dir, "templates"))
+	content := "presets:\n" +
+		"  first:\n    version: [default.txt]\n" +
+		"  second:\n    version: [default.txt]\n" +
+		"files:\n  default:\n    path: Taskfile.yml\n    presets: [first, second]\n    tasks: [sample.txt]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run(nil, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "[WARN]") || !strings.Contains(stderr.String(), "exactly the same elements") {
+		t.Errorf("expected duplicate-preset warning, got: %q", stderr.String())
+	}
+}
+
 func writeConfig(t *testing.T, path, outputPath string) {
 	t.Helper()
 	content := "files:\n" +
 		"  default:\n" +
 		"    path: " + outputPath + "\n" +
-		"    headers: [default.txt]\n" +
+		"    version: [default.txt]\n" +
 		"    vars: [sample.txt]\n" +
 		"    tasks: [sample.txt]\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -624,7 +645,7 @@ func writeTemplateFixtures(t *testing.T, dir string) {
 			t.Fatal(err)
 		}
 	}
-	mustWrite("headers/default.txt", "version: '3'\n\nsilent: true\n")
+	mustWrite("version/default.txt", "version: '3'\n")
 	mustWrite("vars/sample.txt", "  ZEBRA:\n    - z\n\n  APPLE:\n    - a\n")
 	mustWrite("tasks/sample.txt", "  zeta:\n    cmds:\n      - echo zeta\n\n  default:\n    cmds:\n      - task --list\n\n  alpha:\n    cmds:\n      - echo alpha\n")
 }

@@ -1,9 +1,0 @@
-vars:
-  GREETING: Hello, world!
-
-tasks:
-  greeting:
-    aliases: [g]
-    desc: Print a greeting message
-    cmds:
-      - echo "{{.GREETING}}"

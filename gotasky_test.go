@@ -28,12 +28,12 @@ func TestGenerate_RealTemplates(t *testing.T) {
 
 	configContent := fmt.Sprintf(`
 templates: [%q]
+ignore: [.DS_Store, .gitkeep]
 files:
   sample:
     path: Taskfile.generated.yml
-    headers: [default.yml]
+    version: [default.yml]
     includes: [default.yml]
-    vars: [greeting.yml]
     tasks: [default.yml, hello.yml]
 `, templatesDir)
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(configContent), 0o644); err != nil {
