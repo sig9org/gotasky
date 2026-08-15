@@ -4,7 +4,7 @@
 # layered on top of a shared one. A listed directory that doesn't exist is
 # simply skipped, not an error -- generation only fails if a snippet isn't
 # found in any of them. The same filename present in more than one
-# directory (for the same headers/includes/vars/tasks category) is a
+# directory (for the same Taskfile Root Schema category) is a
 # configuration error, not a "first directory wins" case -- generation
 # fails up front rather than silently picking one. If "templates" is
 # omitted entirely, gotasky falls back to ./templates.
@@ -17,14 +17,19 @@ presets:
   default:
     version:
       - default.yml
+    dotenv:
+      - env.yml
     silent:
       - silent.yml
     tasks:
       - default.yml
-files:
-  hello:
-    path: "example/Taskfile.yml"
+  project:
     presets:
       - default
     tasks:
       - hello.yml
+files:
+  hello:
+    path: "example/Taskfile.yml"
+    presets:
+      - project

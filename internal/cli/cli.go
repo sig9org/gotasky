@@ -191,6 +191,11 @@ func debugf(out io.Writer, format string, args ...any) {
 	fmt.Fprintf(out, "%s[DEBUG] %s %s%s\n", ansiGray, time.Now().Format(debugTimestampFormat), fmt.Sprintf(format, args...), ansiReset)
 }
 
+var debugRootCategories = []string{
+	"version", "dotenv", "env", "includes", "interval", "method", "output",
+	"run", "set", "shopt", "silent", "vars", "tasks",
+}
+
 // debugLogConfig writes the parsed config's file entries to out, one file
 // per line block, in a stable name-sorted order. For a file that references
 // one or more presets, it also names those presets and, per preset, exactly
@@ -208,17 +213,18 @@ func debugLogConfig(out io.Writer, cfg *config.Config) {
 	for _, name := range names {
 		fileCfg := cfg.Files[name]
 		debugf(out, "%s -> %s", name, fileCfg.Path)
-		if len(fileCfg.Presets) > 0 {
-			debugf(out, "  presets: %v", fileCfg.Presets)
-			for _, presetName := range fileCfg.Presets {
-				preset := cfg.Presets[presetName]
-				debugf(out, "    %s -> version: %v, includes: %v, vars: %v, tasks: %v", presetName, preset.Version, preset.Includes, preset.Vars, preset.Tasks)
+		debugf(out, "  presets: %v", fileCfg.Presets)
+		for _, presetName := range fileCfg.Presets {
+			preset := cfg.Presets[presetName]
+			debugf(out, "    preset %s:", presetName)
+			debugf(out, "      presets: %v", preset.Presets)
+			for _, category := range debugRootCategories {
+				debugf(out, "      %s: %v", category, preset.TemplateNames(category))
 			}
 		}
-		debugf(out, "  version:  %v", fileCfg.Version)
-		debugf(out, "  includes: %v", fileCfg.Includes)
-		debugf(out, "  vars:     %v", fileCfg.Vars)
-		debugf(out, "  tasks:    %v", fileCfg.Tasks)
+		for _, category := range debugRootCategories {
+			debugf(out, "  %s: %v", category, fileCfg.TemplateNames(category))
+		}
 	}
 }
 

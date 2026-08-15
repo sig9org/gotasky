@@ -359,6 +359,24 @@ func TestRun_DebugFlagPrintsIgnoreList(t *testing.T) {
 	}
 }
 
+func TestRun_DebugFlagPrintsAllFourteenElements(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeTemplateFixtures(t, filepath.Join(dir, "templates"))
+	writeConfig(t, filepath.Join(dir, "config.yml"), "Taskfile.yml")
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"-debug"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, element := range append([]string{"presets"}, debugRootCategories...) {
+		if !strings.Contains(out, "  "+element+":") {
+			t.Errorf("debug output does not contain %q element: %s", element, out)
+		}
+	}
+}
+
 // -debug on a file that references a preset must name the preset and show what
 // that preset individually contributed per category, not just the file's
 // final merged lists.
@@ -389,7 +407,10 @@ func TestRun_DebugFlagPrintsPresetContributions(t *testing.T) {
 	if !strings.Contains(out, "presets: [common]") {
 		t.Errorf("expected debug output to name the referenced preset, got: %s", out)
 	}
-	if !strings.Contains(out, "common -> version: [default.txt], includes: [], vars: [sample.txt], tasks: []") {
+	if !strings.Contains(out, "preset common:") ||
+		!strings.Contains(out, "      presets: []") ||
+		!strings.Contains(out, "      version: [default.txt]") ||
+		!strings.Contains(out, "      vars: [sample.txt]") {
 		t.Errorf("expected debug output to show the preset's own per-category contribution, got: %s", out)
 	}
 }
