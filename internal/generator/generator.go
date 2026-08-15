@@ -4,6 +4,7 @@
 package generator
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -218,11 +219,13 @@ func mergeRootFragments(category string, blocks []string) (string, error) {
 			merged,
 		},
 	}}}
-	data, err := yaml.Marshal(document)
-	if err != nil {
+	var output bytes.Buffer
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(document); err != nil {
 		return "", fmt.Errorf("render merged %s property: %w", category, err)
 	}
-	return strings.TrimRight(string(data), "\n"), nil
+	return strings.TrimRight(output.String(), "\n"), nil
 }
 
 func mergeYAMLNodes(current, incoming *yaml.Node) *yaml.Node {
