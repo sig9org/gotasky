@@ -551,15 +551,15 @@ func TestBuild_MergesEveryDuplicateRootProperty(t *testing.T) {
 	root := t.TempDir()
 	fixtures := map[string][2]string{
 		"version":  {"version: '3'\n", "version: '3.1'\n"},
-		"dotenv":   {"dotenv: [.env]\n", "dotenv: [project.ini]\n"},
+		"dotenv":   {"dotenv:\n  - .env\n", "dotenv:\n  - project.ini\n"},
 		"env":      {"env:\n  FIRST: one\n", "env:\n  SECOND: two\n"},
 		"includes": {"includes:\n  first: ./first.yml\n", "includes:\n  second: ./second.yml\n"},
 		"interval": {"interval: 100ms\n", "interval: 1s\n"},
 		"method":   {"method: checksum\n", "method: timestamp\n"},
 		"output":   {"output:\n  group:\n    begin: begin\n", "output:\n  group:\n    end: end\n"},
 		"run":      {"run: always\n", "run: once\n"},
-		"set":      {"set: [errexit]\n", "set: [pipefail]\n"},
-		"shopt":    {"shopt: [globstar]\n", "shopt: [nullglob]\n"},
+		"set":      {"set:\n  - errexit\n", "set:\n  - pipefail\n"},
+		"shopt":    {"shopt:\n  - globstar\n", "shopt:\n  - nullglob\n"},
 		"silent":   {"silent: true\n", "silent: false\n"},
 		"vars":     {"vars:\n  FIRST: one\n", "vars:\n  SECOND: two\n"},
 		"tasks":    {"tasks:\n  default: echo default\n", "tasks:\n  build: echo build\n"},
@@ -624,10 +624,16 @@ func TestBuild_MergesEveryDuplicateRootProperty(t *testing.T) {
 		if got := len(decoded[category].([]any)); got != 2 {
 			t.Errorf("%s length = %d, want 2", category, got)
 		}
+		if strings.Contains(content, category+":\n    -") || !strings.Contains(content, category+":\n  -") {
+			t.Errorf("%s sequence does not use two-space indentation:\n%s", category, content)
+		}
 	}
 	output := decoded["output"].(map[string]any)["group"].(map[string]any)
 	if output["begin"] != "begin" || output["end"] != "end" {
 		t.Errorf("output.group = %#v, want merged begin/end", output)
+	}
+	if !strings.Contains(content, "output:\n  group:\n    begin:") {
+		t.Errorf("output mapping does not use two-space indentation per level:\n%s", content)
 	}
 }
 

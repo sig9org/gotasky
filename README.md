@@ -63,6 +63,7 @@ See [`config.yml.example`](config.yml.example) for a working example using this 
 
 For every generated file, gotasky guarantees:
 
+- Generated block-style YAML uses two spaces per indentation level.
 - Every Root Schema property appears at most once at the top level. Sequence
   properties (`dotenv`, `set`, `shopt`) are concatenated, mapping properties
   are merged, and later scalar values override earlier inherited defaults.
