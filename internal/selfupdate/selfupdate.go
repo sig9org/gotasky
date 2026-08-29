@@ -6,46 +6,44 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
-	"github.com/Masterminds/semver/v3"
-	selfupdatelib "github.com/creativeprojects/go-selfupdate"
+	selfupdatelib "github.com/sig9org/selfupdate-go"
 )
 
 // ErrUpToDate is returned by Update when currentVersion is already the
 // latest available release.
 var ErrUpToDate = errors.New("already up to date")
 
-// ErrNotAReleaseBuild is returned by Update when currentVersion is not a
-// valid semantic version (e.g. the "dev" placeholder used for local
-// builds), since there is nothing meaningful to compare against.
+// ErrNotAReleaseBuild is returned by Update when currentVersion is empty or
+// the "dev" placeholder used for local builds, since there is nothing
+// meaningful to compare against.
 var ErrNotAReleaseBuild = errors.New("current build is not a versioned release")
 
 // Update checks repoSlug (e.g. "sig9org/gotasky") for a release newer than
 // currentVersion and, if found, downloads it and replaces the running
 // executable in place. It returns ErrUpToDate if no update is needed, or
-// ErrNotAReleaseBuild if currentVersion isn't a valid semantic version.
+// ErrNotAReleaseBuild if currentVersion isn't a release build version.
 func Update(ctx context.Context, repoSlug, currentVersion string) (string, error) {
-	if _, err := semver.NewVersion(currentVersion); err != nil {
+	if strings.TrimSpace(currentVersion) == "" || strings.EqualFold(strings.TrimSpace(currentVersion), "dev") {
 		return "", ErrNotAReleaseBuild
 	}
 
-	repo := selfupdatelib.ParseSlug(repoSlug)
-
-	latest, found, err := selfupdatelib.DetectLatest(ctx, repo)
+	updater, err := selfupdatelib.New(selfupdatelib.Config{
+		Repository: repoSlug,
+		Validator:  selfupdatelib.SHA256Validator{AssetName: "checksums.txt"},
+	})
 	if err != nil {
-		return "", fmt.Errorf("detect latest release: %w", err)
-	}
-	if !found {
-		return "", fmt.Errorf("no release found for this platform in %s", repoSlug)
+		return "", fmt.Errorf("configure self-update: %w", err)
 	}
 
-	if latest.LessOrEqual(currentVersion) {
-		return latest.Version(), ErrUpToDate
+	result, err := updater.Update(ctx, currentVersion)
+	if err != nil {
+		return "", fmt.Errorf("self-update: %w", err)
+	}
+	if !result.Updated {
+		return result.LatestVersion, ErrUpToDate
 	}
 
-	if _, err := selfupdatelib.UpdateSelf(ctx, currentVersion, repo); err != nil {
-		return "", fmt.Errorf("update to %s: %w", latest.Version(), err)
-	}
-
-	return latest.Version(), nil
+	return result.LatestVersion, nil
 }
