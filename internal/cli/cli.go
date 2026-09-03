@@ -180,6 +180,9 @@ func runGenerate(stdout, stderr io.Writer, configFlag string, debug, dryRun, sil
 			fmt.Fprintf(stdout, "[OK] %s: %s\n", result.Name, result.Path)
 		}
 	}
+	if debug {
+		debugLogUnusedTemplates(stdout, cfg, templatesDirs)
+	}
 	if err != nil {
 		return 1
 	}
@@ -225,6 +228,22 @@ func debugLogConfig(out io.Writer, cfg *config.Config) {
 		for _, category := range debugRootCategories {
 			debugf(out, "  %s: %v", category, fileCfg.TemplateNames(category))
 		}
+	}
+}
+
+// debugLogUnusedTemplates reports template files that were not selected by
+// any generated file. It runs after generation so the report reflects the
+// tool's actual search-path behavior.
+func debugLogUnusedTemplates(out io.Writer, cfg *config.Config, templatesDirs []string) {
+	unused := generator.FindUnusedTemplates(cfg, templatesDirs)
+	if len(unused) == 0 {
+		debugf(out, "unused templates: none")
+		return
+	}
+
+	debugf(out, "unused templates:")
+	for _, template := range unused {
+		debugf(out, "  %s/%s/%s", template.Dir, template.Category, template.Name)
 	}
 }
 

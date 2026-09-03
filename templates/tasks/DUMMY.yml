@@ -1,0 +1,6 @@
+tasks:
+  dummy:
+    aliases: [d]
+    desc: Print a greeting message
+    cmds:
+      - echo 'Hello, Dummy!'

@@ -1,5 +1,3 @@
-# yaml-language-server: $schema=https://taskfile.dev/schema.json
-
 version: '3'
 
 silent: true
@@ -13,4 +11,4 @@ tasks:
     aliases: [h]
     desc: Print a greeting message
     cmds:
-      - echo "Hello, World!"
+      - echo 'Hello, World!'

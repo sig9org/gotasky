@@ -174,7 +174,7 @@ Usage of gotasky:
 
 `-silent` suppresses the `[OK]` lines gotasky normally prints to stdout; `[WARN]`/`[NG]`/`[ERROR]` failures are always reported on stderr regardless, and the exit code is unaffected. If `-debug` is also given, `-debug` wins: silent is ignored and normal (`[DEBUG]` and `[OK]`) output is printed.
 
-For each file, `-debug` prints all 14 supported elements (`presets` plus the 13 Root Schema categories), including empty lists. When presets are referenced, it also prints all 14 elements for each resolved preset — not just the file's final, already-merged list.
+For each file, `-debug` prints all 14 supported elements (`presets` plus the 13 Root Schema categories), including empty lists. When presets are referenced, it also prints all 14 elements for each resolved preset — not just the file's final, already-merged list. After generation, it lists template files under the configured `templates` directories that were not used by any generated file.
 
 ### Configuring paths
 

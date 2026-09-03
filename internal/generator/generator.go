@@ -48,10 +48,75 @@ type Generator struct {
 	TemplatesDirs []string
 }
 
+// UnusedTemplate is a template file found under one of the configured
+// templates directories that was not selected by any generated file.
+type UnusedTemplate struct {
+	Dir      string
+	Category string
+	Name     string
+}
+
 // New creates a Generator that reads template snippets from templatesDirs,
 // in search-path order.
 func New(templatesDirs []string) *Generator {
 	return &Generator{TemplatesDirs: templatesDirs}
+}
+
+// FindUnusedTemplates returns template files that are not used by any file in
+// cfg. A requested snippet is attributed to the first configured directory
+// where it exists, matching readTemplate's search-path behavior. Missing
+// directories and category folders are ignored. Files listed in cfg.Ignore
+// are excluded from the report.
+func FindUnusedTemplates(cfg *config.Config, templatesDirs []string) []UnusedTemplate {
+	ignored := make(map[string]bool, len(cfg.Ignore))
+	for _, name := range cfg.Ignore {
+		ignored[name] = true
+	}
+
+	used := make(map[string]bool)
+	for _, fileCfg := range cfg.Files {
+		for _, category := range templateCategories {
+			for _, name := range fileCfg.TemplateNames(category) {
+				for _, dir := range templatesDirs {
+					path := filepath.Join(dir, category, name)
+					if info, err := os.Stat(path); err == nil && !info.IsDir() {
+						used[path] = true
+						break
+					}
+				}
+			}
+		}
+	}
+
+	var unused []UnusedTemplate
+	for _, dir := range templatesDirs {
+		for _, category := range templateCategories {
+			entries, err := os.ReadDir(filepath.Join(dir, category))
+			if err != nil {
+				continue
+			}
+			for _, entry := range entries {
+				if entry.IsDir() || ignored[entry.Name()] {
+					continue
+				}
+				path := filepath.Join(dir, category, entry.Name())
+				if !used[path] {
+					unused = append(unused, UnusedTemplate{Dir: dir, Category: category, Name: entry.Name()})
+				}
+			}
+		}
+	}
+
+	sort.Slice(unused, func(i, j int) bool {
+		if unused[i].Dir != unused[j].Dir {
+			return unused[i].Dir < unused[j].Dir
+		}
+		if unused[i].Category != unused[j].Category {
+			return unused[i].Category < unused[j].Category
+		}
+		return unused[i].Name < unused[j].Name
+	})
+	return unused
 }
 
 func (g *Generator) readTemplate(category, name string) (string, error) {
