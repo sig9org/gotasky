@@ -41,9 +41,12 @@ tasks:
     desc: 'Cleanup unnecessary files'
     cmds:
       - defer:
-          task: time
+          task: notify
           vars:
-            START_TIME: '{{.START_TIME}}'
+            NOTIFY_CONTEXT:
+              map:
+                START_TIME: '{{.START_TIME}}'
+                NOTIFY_TITLE: '{{.TASK}} (go-task)'
       - task: cleanup:internal
 
   cleanup:internal:
@@ -68,9 +71,9 @@ tasks:
     platforms: [windows]
     cmds:
       - for: { var: CLEANUP_DIRS }
-        cmd: powershell -NoProfile -Command "Get-ChildItem -Path . -Recurse -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq '{{.ITEM}}' } | Sort-Object FullName -Descending | ForEach-Object { Write-Output ('[DELETE]' + $_.FullName); Remove-Item -LiteralPath $_.FullName -Recurse -Force }"
+        cmd: powershell -NoProfile -Command $'Get-ChildItem -Path . -Recurse -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq "{{.ITEM}}" } | Sort-Object FullName -Descending | ForEach-Object { Write-Output ("[DELETE] $($_.FullName)"); Remove-Item -LiteralPath $_.FullName -Recurse -Force }'
       - for: { var: CLEANUP_FILES }
-        cmd: powershell -NoProfile -Command "Get-ChildItem -Path . -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq '{{.ITEM}}' } | ForEach-Object { Write-Output ('[DELETE]' + $_.FullName); Remove-Item -LiteralPath $_.FullName -Force }"
+        cmd: powershell -NoProfile -Command $'Get-ChildItem -Path . -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq "{{.ITEM}}" } | ForEach-Object { Write-Output ("[DELETE] $($_.FullName)"); Remove-Item -LiteralPath $_.FullName -Force }'
 
   go-build:
     aliases: [gb]
@@ -282,35 +285,37 @@ tasks:
   notify:
     internal: true
     cmds:
-      - task: notify:mac
+      - task: notify:time
         vars:
-          NOTIFY_TITLE: '{{.NOTIFY_TITLE}}'
-          NOTIFY_BODY: '{{.NOTIFY_BODY}}'
-      - task: notify:win
+          NOTIFY_CONTEXT:
+            ref: .NOTIFY_CONTEXT
+      - task: notify:toast
         vars:
-          NOTIFY_TITLE: '{{.NOTIFY_TITLE}}'
-          NOTIFY_BODY: '{{.NOTIFY_BODY}}'
+          NOTIFY_CONTEXT:
+            ref: .NOTIFY_CONTEXT
 
-  notify:mac:
-    internal: true
-    platforms: [darwin]
-    cmds:
-      - osascript -e 'display notification "{{.NOTIFY_BODY}}" with title "{{.NOTIFY_TITLE}}"'
-      - /bin/sh -c 'nohup /usr/bin/afplay /System/Library/Sounds/Glass.aiff >/dev/null 2>&1 < /dev/null &'
-
-  notify:win:
-    internal: true
-    platforms: [windows]
-    cmds:
-      - powershell -NoProfile -Command "[System.Media.SystemSounds]::Beep.Play(); $notify = New-Object System.Windows.Forms.NotifyIcon; $notify.Icon = [System.Drawing.SystemIcons]::Information; $notify.BalloonTipTitle = '{{.NOTIFY_TITLE}}'; $notify.BalloonTipText = '{{.NOTIFY_BODY}}'; $notify.Visible = $true; $notify.ShowBalloonTip(5000); Start-Sleep -Seconds 5; $notify.Dispose()"
-
-  time:
+  notify:time:
     internal: true
     vars:
       END_TIME: '{{now.UnixMilli}}'
     cmds:
+      - task: notify:time:shell
+        vars:
+          NOTIFY_CONTEXT:
+            ref: .NOTIFY_CONTEXT
+      - task: notify:time:win
+        vars:
+          NOTIFY_CONTEXT:
+            ref: .NOTIFY_CONTEXT
+
+  notify:time:shell:
+    internal: true
+    platforms: [darwin,linux]
+    vars:
+      END_TIME: '{{now.UnixMilli}}'
+    cmds:
       - |
-        ELAPSED_MS=$(({{.END_TIME}} - {{.START_TIME}}))
+        ELAPSED_MS=$(({{.END_TIME}} - {{.NOTIFY_CONTEXT.START_TIME}}))
         MINUTES=$((ELAPSED_MS / 60000))
         SECONDS=$((ELAPSED_MS % 60000 / 1000))
         MILLIS=$((ELAPSED_MS % 1000))
@@ -323,3 +328,39 @@ tasks:
         else
           printf '%b======================================== Elapsed: %s msec%b\n' "$GREEN" "$MILLIS" "$RESET"
         fi
+
+  notify:time:win:
+    internal: true
+    platforms: [windows]
+    vars:
+      END_TIME: '{{now.UnixMilli}}'
+    cmds:
+      - |
+        powershell.exe -NoProfile -Sta -Command '$elapsedMs = [int64]{{.END_TIME}} - [int64]{{.NOTIFY_CONTEXT.START_TIME}}; $minutes = [math]::Floor($elapsedMs / 60000); $remainingMs = $elapsedMs - ($minutes * 60000); $seconds = [math]::Floor($remainingMs / 1000); $millis = $remainingMs - ($seconds * 1000); if ($minutes -gt 0) { $message = "======================================== Elapsed: {0} min {1} sec {2} msec" -f $minutes, $seconds, $millis } elseif ($seconds -gt 0) { $message = "======================================== Elapsed: {0} sec {1} msec" -f $seconds, $millis } else { $message = "======================================== Elapsed: {0} msec" -f $millis }; Write-Host $message -ForegroundColor Green'
+
+  notify:toast:
+    internal: true
+    cmds:
+      - task: notify:toast:mac
+        vars:
+          NOTIFY_CONTEXT:
+            ref: .NOTIFY_CONTEXT
+      - task: notify:toast:win
+        vars:
+          NOTIFY_CONTEXT:
+            ref: .NOTIFY_CONTEXT
+
+  notify:toast:mac:
+    internal: true
+    platforms: [darwin]
+    vars:
+      END_TIME: '{{now.UnixMilli}}'
+    cmds:
+      - osascript -e 'display notification "Done." with title "{{.NOTIFY_CONTEXT.NOTIFY_TITLE}}"'
+      - /bin/sh -c 'nohup /usr/bin/afplay /System/Library/Sounds/Glass.aiff >/dev/null 2>&1 < /dev/null &'
+
+  notify:toast:win:
+    internal: true
+    platforms: [windows]
+    cmds:
+      - powershell.exe -NoProfile -Sta -Command 'Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Media.SystemSounds]::Beep.Play(); $notify = New-Object System.Windows.Forms.NotifyIcon; $notify.Icon = [System.Drawing.SystemIcons]::Information; $notify.BalloonTipTitle = "{{.NOTIFY_CONTEXT.NOTIFY_TITLE}}"; $notify.BalloonTipText = "Done."; $notify.Visible = $true; $notify.ShowBalloonTip(5000); Start-Sleep -Seconds 5; $notify.Dispose()'

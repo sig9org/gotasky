@@ -331,6 +331,38 @@ func TestRun_DebugFlagPrintsDiagnostics(t *testing.T) {
 	}
 }
 
+// -debug must report files present in configured template directories that no
+// generated file selected, while normal runs must not print that diagnostic.
+func TestRun_DebugFlagPrintsUnusedTemplatesOnlyWhenEnabled(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	templatesDir := filepath.Join(dir, "templates")
+	writeTemplateFixtures(t, templatesDir)
+	unusedPath := filepath.Join(templatesDir, "tasks", "unused.txt")
+	if err := os.WriteFile(unusedPath, []byte("  UNUSED:\n    cmds: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, filepath.Join(dir, "config.yml"), "Taskfile.yml")
+
+	var debugStdout, debugStderr bytes.Buffer
+	if code := Run([]string{"-debug"}, &debugStdout, &debugStderr); code != 0 {
+		t.Fatalf("debug run failed: %s", debugStderr.String())
+	}
+	if !strings.Contains(debugStdout.String(), "unused templates:") ||
+		!strings.Contains(debugStdout.String(), "tasks/unused.txt") {
+		t.Errorf("expected debug output to list unused template, got: %s", debugStdout.String())
+	}
+
+	var normalStdout, normalStderr bytes.Buffer
+	if code := Run(nil, &normalStdout, &normalStderr); code != 0 {
+		t.Fatalf("normal run failed: %s", normalStderr.String())
+	}
+	if strings.Contains(normalStdout.String(), "unused templates") {
+		t.Errorf("normal output unexpectedly listed unused templates: %s", normalStdout.String())
+	}
+}
+
 // -debug must show the resolved Config.Ignore list, since it's part of how
 // templatesDirs gets scanned for the duplicate-filename check.
 func TestRun_DebugFlagPrintsIgnoreList(t *testing.T) {
